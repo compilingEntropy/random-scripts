@@ -1,0 +1,95 @@
+#!/bin/bash
+
+#verbose implementation of sshtun
+
+#fill in data here, I recommend either setting pingip to the ip you want to connect to, or something like 8.8.8.8
+#domain names work equally well
+user=""
+ip=""
+pingip=""
+port="22"
+connected=0
+
+if [[ $(whoami) == root ]];
+then
+	connected()
+	{
+		$( ping -q -c 2 -f $pingip > /dev/null 2>&1 )
+	}
+elif [[ $(whoami) != root ]]; then
+	connected()
+	{
+		$( ping -q -c 2 $pingip > /dev/null 2>&1 )
+	}
+fi
+
+tunnelcount()
+{
+	tunnelcount=$(ps -ax | grep ssh | grep -c $ip)
+}
+
+while(true);
+do
+	connected=0
+	while ! connected;
+	do
+		echo "no internet connection found, sleeping..."
+		sleep 10
+		tunnelcount
+		if [ $tunnelcount -ge "1" ];
+		then
+			if connected;
+			then
+				killall ssh
+				echo "killed!"
+				connected=1
+				break
+			fi
+		fi
+	done
+
+	if connected;
+	then
+		echo "valid internet connection detected."
+		connected=1
+	fi
+
+	if [[ $connected -eq 1 ]];
+	then
+		for (( i=1; i<9; i++ ));
+		do
+			tunnelcount
+			if [[ $tunnelcount -lt 1 ]];
+			then
+				echo "no tunnels found, tunneling..."
+				ssh "$user"@$ip -C -p "$port" -D 9999 -N -f -c blowfish
+				tunnelcount
+				if [[ $tunnelcount -eq 1 ]];
+				then
+					echo "tunnel created successfully."
+				elif [[ $tunnelcount -lt 1 ]];
+				then
+					((i+=3))
+					echo "tunneling failed, retrying..."
+					sleep 2
+				elif [[ $tunnelcount -gt 1 ]];
+				then
+					((i+=3))
+					echo "multiple tunnels detected, something's weird..."
+					sleep 2
+				fi
+			elif [[ $tunnelcount -eq 1 ]];
+			then
+				echo "valid tunnel found."
+				sleep 4
+			elif [[ $tunnelcount -gt 1 ]];
+			then
+				echo "multiple valid tunnels found, killing all and retunneling."
+				killall ssh
+				((i--))
+			fi
+		done
+	else
+		echo "We've been disconnected somehow."
+	fi
+done
