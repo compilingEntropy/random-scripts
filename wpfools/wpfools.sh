@@ -28,7 +28,7 @@
 # > 'wp-content_stock' won't be kept if there's already a wp-content present, under 'wpcore'
 # > old Wordpress files are no longer in 'core_$timestamp', they'll now be in 'oldwp_$timestamp'
 # > 'wpstats' does not run tests on index.php or wp-admin/index.php
-# > 
+# > wpuser -u does not work for reasons.
 # 
 # 
 # 
@@ -49,6 +49,32 @@
 # 
 # 
 ###
+
+
+
+
+
+
+#set appropriate wp binary env
+if [[ -f ./wp-includes/version.php ]]; then
+	wpver="$( php-cli -r 'require_once("./wp-includes/version.php"); echo "$wp_version";' )"
+	#non-intuitive, but this checks if the version is greater than or equal to 3.5.2
+	if [[ "$( echo -e "3.5.2\n$wpver" | sort -V | head -n 1 )" == "3.5.2" ]]; then
+		#greater than or equal to 3.5.2
+		wpcli()
+		{
+			/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@"
+		}
+	else
+		#less than 3.5.2
+		wpcli()
+		{
+			/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@"
+		}
+	fi
+else
+	echo "oops"
+fi
 
 version_regex="^([[:digit:]]\.[[:digit:]]{1,2}|[[:digit:]]\.[[:digit:]]\.[[:digit:]]{1,2})$"
 sha1_regex="\b[[:xdigit:]]{40}\b"
@@ -373,16 +399,15 @@ wpfix()
 	#not working?
 	struct="$( wpcli option get permalink_structure )"
 	if [[ -n "$struct" ]]; then
-		wpcli rewrite structure "$struct" --hard
-	else
-		#something
-		sleep 0
+		wpcli rewrite flush
 	fi
+	wpcli rewrite structure "$struct" --hard
 }
 
 #unfinished maybe
 wpstats()
 {
+	#contains workaround for --option bug
 	echo -e "
 	WP version:	$( wpcli core version )
 	UserID 1:	$( wpcli "user get 1 --field='display_name'" )
@@ -442,18 +467,20 @@ wpht()
 
 wpdb()
 {
-	#FIX
-	#would like a better way of doing this line
-	read -r dbhost dbname dbpass dbuser dbprefix <<< "$( cat wp-config.php | egrep "^[^/].*[\"']DB_(NAME|USER|PASSWORD|HOST[^_])|table_prefix" | sort -d | sed "s/.*[\"']\(.*\)[\"'].*;.*/\1/" )"
+	#get some database variables from wp-config.php
+	dbuser="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_USER");' )"
+	dbpass="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_PASSWORD");' )"
+	dbhost="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_HOST");' )"
+	dbname="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_NAME");' )"
+	dbprefix="$( php-cli -r 'require_once("./wp-config.php"); echo "$table_prefix";' )"
 
-	#Need to include a optimize/fix option
 	if [[ -z "$1" ]]; then
 		echo -e "
-	DB user:\t$dbuser
-	DB pass:\t$dbpass
-	DB host:\t$dbhost
-	DB name:\t$dbname
-	DB prefix:\t$dbprefix
+	DB user:	$dbuser
+	DB pass:	$dbpass
+	DB host:	$dbhost
+	DB name:	$dbname
+	DB prefix:	$dbprefix
 	"
 		wpcli core is-installed
 		echo "SHOW STATUS WHERE variable_name = 'Threads_running';" | wpcli db query | grep "Threads_running" | sed "s|Threads_running|Active Connections:|g"
@@ -553,17 +580,17 @@ update           Update a user.
 		#and not implementing a workaround because I'm also assuming that the reason is a good one. Rather
 		#than not implementing this feature at all, I'm including the command that should work instead to
 		#show users that it's not a good idea to update the username.
-		wpcli "user update "$1" --user_login="$3""
+		wpcli "user update "$1" --user_login="$3"" #contains workaround for --option bug
 		return
 	elif [[ "$2" == "-p" ]]; then
-		wpcli "user update "$1" --user_pass="$3""
+		wpcli "user update "$1" --user_pass="$3"" #contains workaround for --option bug
 		return
 	elif [[ "$2" == "-a" ]]; then
-		wpcli "user add-role "$1" administrator"
+		wpcli "user add-role "$1" administrator" #contains workaround for --option bug
 		return
 	elif [[ "$2" == "-d" ]]; then
 		if [[ -n "$3" ]]; then
-			wpcli "user delete "$1" --reassign="$3""
+			wpcli "user delete "$1" --reassign="$3"" #contains workaround for --option bug
 		else
 			wpcli user delete "$1"
 		fi
@@ -591,9 +618,9 @@ update           Update a user.
 		read -rp "Password [randomly generated]: " password
 
 		if [[ -z "$password" ]]; then
-			wpcli "user create "$username" "$email" --role=administrator"
+			wpcli "user create "$username" "$email" --role=administrator" #contains workaround for --option bug
 		else
-			wpcli "user create "$username" "$email" --role=administrator --user_pass="$password""
+			wpcli "user create "$username" "$email" --role=administrator --user_pass="$password"" #contains workaround for --option bug
 		fi
 
 		echo
@@ -634,7 +661,61 @@ update           Update a user.
 
 
 
+wpplug()
+{
+	if [[ -z "$1" ]]; then
+		#contains workaround for --option bug
+		echo "
+Active plugins:
+	"$( wpcli "plugin list --status=active --fields=name" | sed -n "2,$ p" )"
 
+Available plugins:
+	"$( wpcli "plugin list --fields=name" | sed -n "2,$ p" )"	
+		"
+		return
+	elif [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+		echo -e "
+Basic plugin functions.
+
+	activate          Activate a plugin.
+	active            List active plugins
+	deactivate        Deactivate a plugin.
+	delete            Delete plugin files.
+	get               Get a plugin.
+	install           Install a plugin.
+	is-installed      Check if the plugin is installed.
+	list              Get a list of plugins.
+	path              Get the path to a plugin or to the plugin directory.
+	search            Search the wordpress.org plugin repository.
+	status            See the status of one or all plugins.
+	toggle            Toggle a plugin's activation state.
+	uninstall         Uninstall a plugin.
+	update            Update one or more plugins.
+		"
+		return
+	elif [[ "$1" == "active" ]]; then
+		echo "
+Active plugins:
+	"$( wpcli "plugin list --status=active --fields=name" | sed -n "2,$ p" )"
+		"
+		return
+	elif [[ "$1" == "-d" ]]; then
+		wpcli plugin deactivate --all
+		return
+	elif [[ "$1" == "" ]]; then
+
+	elif [[ "$1" == "" ]]; then
+
+	elif [[ "$1" == "" ]]; then
+
+	elif [[ "$1" == "" ]]; then
+
+	else
+		#pipe output to sed to fix usage text, but this breaks read prompts like in wpcli user delete :(
+		wpcli user "$@" # | sed "s|wp user|wpuser|g"
+		return
+	fi
+}
 
 
 
