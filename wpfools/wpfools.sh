@@ -29,7 +29,7 @@
 # > old Wordpress files are no longer in 'core_$timestamp', they'll now be in 'oldwp_$timestamp'
 # > 'wpstats' does not run tests on index.php or wp-admin/index.php
 # > wpuser -u does not work for reasons.
-# 
+# > wpver() does not get db version, and therefore wpcore() can't download db version
 # 
 # 
 # 
@@ -111,8 +111,6 @@ Usage:
 		download version VERSION of the Wordpress core
 		cur
 		download new set of files matching current file version
-		db
-		download set of files matching current database version
 		-h
 		display this help output
 "
@@ -122,15 +120,15 @@ Usage:
 	#Download new set of files matching current file version
 	fileVersion()
 	{
-		version="$(wpver -q | awk '{print $1}')"
+		version="$( wpver -q )"
 		wpfile="wordpress-$version.tar.gz"
 	}
 	#Download new set of files matching current database version
-	databaseVersion()
-	{
-		version="$(wpver -q | awk '{print $3}')"
-		wpfile="wordpress-$version.tar.gz"
-	}
+#	databaseVersion()
+#	{
+#		version="$( wpver -q | awk '{print $3}' )"
+#		wpfile="wordpress-$version.tar.gz"
+#	}
 	#Download new set of files matching user specified version
 	selectedVersion()
 	{
@@ -321,8 +319,8 @@ Usage:
 		return 0
 	elif [[ "$arg" == "cur" || "$arg" == "file" ]]; then
 		fileVersion
-	elif [[ "$arg" == "db" || "$arg" == "database" ]]; then
-		databaseVersion
+	#elif [[ "$arg" == "db" || "$arg" == "database" ]]; then
+	#	databaseVersion
 	elif [[ "$arg" =~ $version_regex ]]; then
 		selectedVersion
 	elif [[ "$arg" == "latest" || -z "$arg" ]]; then
