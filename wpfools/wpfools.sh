@@ -43,8 +43,8 @@
 # > replace wpcore() with wpcli core, maybe (more testing required)
 # > wpht() in general just needs some serious QA testing, r&d
 # > wpfix() needs QA
-# 
-# 
+# > be consistent with returns
+# > remove -e from echo when not necessary
 # 
 # 
 # 
@@ -53,28 +53,34 @@
 
 
 
-
-
-#set appropriate wp binary env
-if [[ -f ./wp-includes/version.php ]]; then
-	wpver="$( php-cli -r 'require_once("./wp-includes/version.php"); echo "$wp_version";' )"
-	#non-intuitive, but this checks if the version is greater than or equal to 3.5.2
-	if [[ "$( echo -e "3.5.2\n$wpver" | sort -V | head -n 1 )" == "3.5.2" ]]; then
-		#greater than or equal to 3.5.2
+#untested on old versions of wordpress
+wpenv()
+{
+	#set appropriate wp binary env
+	if [[ -f ./wp-includes/version.php ]]; then
+		wp_version="$( php-cli -r 'require_once("./wp-includes/version.php"); echo "$wp_version";' )"
+		#non-intuitive, but this checks if the version is greater than or equal to 3.5.2
+		if [[ "$( echo -e "3.5.2\n$wp_version" | sort -V | head -n 1 )" == "3.5.2" ]]; then
+			#greater than or equal to 3.5.2
+			wpcli()
+			{
+				/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@"
+			}
+		else
+			#less than 3.5.2
+			wpcli()
+			{
+				/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@"
+			}
+		fi
+	else
+		echo "Unable to detect Wordpress version, assuming > 3.5.2."
 		wpcli()
 		{
 			/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@"
 		}
-	else
-		#less than 3.5.2
-		wpcli()
-		{
-			/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@"
-		}
 	fi
-else
-	echo "oops"
-fi
+}
 
 version_regex="^([[:digit:]]\.[[:digit:]]{1,2}|[[:digit:]]\.[[:digit:]]\.[[:digit:]]{1,2})$"
 sha1_regex="\b[[:xdigit:]]{40}\b"
@@ -130,7 +136,7 @@ Usage:
 	{
 		#Sanitize user input
 		if [[ ! "$arg" =~ $version_regex ]]; then
-			echo "Version specified is not valid!"
+			echo 'Version specified is not valid!'
 			return 9
 		fi
 
@@ -341,7 +347,9 @@ Usage:
 
 wptheme()
 {
-	if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+	wpenv
+
+	if [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
 		echo "
 	activate          Activate a theme.
 	delete            Delete a theme.
@@ -356,19 +364,20 @@ wptheme()
 	path              Get the path to a theme or to the theme directory.
 	search            Search the wordpress.org theme repository.
 	status            See the status of one or all themes.
-	update            Update one or more themes.
+	update [--all]    Update one or more themes.
 	use               Install and activate a theme.
 
 	-s                Set only stylesheet: wptheme -s twentyfifteen
 	-t                Set only template: wptheme -t twentyfifteen
 		"
 	elif [[ -z "$1" ]]; then
-		echo -e "\nCurrent themes:\n"
-		#wpcli theme list --status="active"	#broken
-		echo -e "\tstylesheet:\t$(wpcli option get stylesheet)"
-		echo -e "\ttemplate:\t$(wpcli option get template)"
-		echo -e "\nAvailable themes:\n"
-		wpcli theme list
+		echo
+		wpcli theme status
+		echo "
+Details:
+  stylesheet:   $(wpcli option get stylesheet)
+  template:     $(wpcli option get template)
+		"
 	elif [[ "$1" == "fresh" ]]; then
 		wpcli theme install twentyfifteen
 		wpcli theme activate twentyfifteen
@@ -386,60 +395,75 @@ wptheme()
 
 wpfix()
 {
-	if [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
-		echo -e "This tool runs various built-in Wordpress functions and fixes.\n\nUsage:\n\n\twpfix\n"
+	wpenv
+
+	if [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
+		echo -e "This tool runs various built-in Wordpress functions and fixes."
 		return
 	fi
 
 	wpcli cache flush
-	wpcli db repair
-	wpcli db optimize
+	wpcli db repair | grep -v "OK"
+	wpcli db optimize | grep -v "OK"
 	wpcli core update-db
+	#wpcli rewrite flush --hard
+	wpcli transient delete-expired
 
-	#not working?
-	struct="$( wpcli option get permalink_structure )"
-	if [[ -n "$struct" ]]; then
-		wpcli rewrite flush
-	fi
-	wpcli rewrite structure "$struct" --hard
+
+#	###HARD FIXES###
+#	#probably gonna add a line by line prompt for these.
+#
+#	wpcli role reset
+#	wpcli media regenerate --yes
+#	wpcli plugin update --all
+#	wpcli theme update --all
+#	wpcli core update
+#	wpcli transient delete-all
+#
+#	#delete spam comments
+#	wp comment delete $( wp comment list --status=spam --format=ids )
+#	#delete unapproved comments
+#	wp comment delete $( wp comment list --status=unapproved --format=ids )
 }
 
 #unfinished maybe
 wpstats()
 {
-	#contains workaround for --option bug
+	wpenv
+
+	#perhaps do a wpcli core check-update alongside the version
+	#maybe check some things about the install such as checksums, database connectivity, etc
 	echo -e "
-	WP version:	$( wpcli core version )
-	UserID 1:	$( wpcli "user get 1 --field='display_name'" )
-	home:		$( wpcli option get home )
-	siteurl:	$( wpcli option get siteurl )
-	stylesheet:	$( wpcli option get stylesheet )
-	template:	$( wpcli option get template )
+	WP version:   $( wpcli core version )
+	UserID 1:     $( wpcli user get 1 --field='display_name' )
+	home:         $( wpcli option get home )
+	siteurl:      $( wpcli option get siteurl )
+	stylesheet:   $( wpcli option get stylesheet )
+	template:     $( wpcli option get template )
 	"
+	wpcli core is-installed || echo
 }
 
 wpurl()
 {
+	wpenv
+
 	if [[ -z "$1" ]]; then
 		echo -e "
-	home:		$( wpcli option get home )
-	siteurl:	$( wpcli option get siteurl )
+	home:      $( wpcli option get home )
+	siteurl:   $( wpcli option get siteurl )
 		"
-	elif [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+	elif [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
 		echo -e "This tool returns the current URL settings in the database, or updates them to a specified URL.
 
-Usage:
-
 	wpurl [URL]
-
-	URL
-		specify a URL to change the site to. If the URL does not start with 'http://' or 'https://' it will automatically append 'http://'.
 		"
 	else
 		if [[ "$1" =~ (^http[s]?://.*) ]]; then
 			url="$1"
 		else
 			url="http://$1"
+			echo "Using: $url"
 		fi
 		wpcli option update siteurl "$url"
 		wpcli option update home "$url"
@@ -450,8 +474,10 @@ Usage:
 #hopefully this will be replaced by a feature I have requested, quick and dirty until then
 wpht()
 {
+	wpenv
+
 	if [[ -f ./.htaccess ]]; then
-		cp ./.htaccess ./.htaccess_"$(now)"
+		cp ./.htaccess ./.htaccess_"$( now )"
 	fi
 
 	#double check this
@@ -467,28 +493,34 @@ wpht()
 
 wpdb()
 {
+	wpenv
+
 	#get some database variables from wp-config.php
-	dbuser="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_USER");' )"
-	dbpass="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_PASSWORD");' )"
-	dbhost="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_HOST");' )"
-	dbname="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_NAME");' )"
-	dbprefix="$( php-cli -r 'require_once("./wp-config.php"); echo "$table_prefix";' )"
+	if [[ -f "./wp-config.php" ]]; then
+		dbuser="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_USER");' )"
+		dbpass="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_PASSWORD");' )"
+		dbhost="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_HOST");' )"
+		dbname="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_NAME");' )"
+		dbprefix="$( php-cli -r 'require_once("./wp-config.php"); echo "$table_prefix";' )"
+	else
+		echo "Unable to locate the wp-config.php file, attempting to continue..."
+	fi
 
 	if [[ -z "$1" ]]; then
 		echo -e "
-	DB user:	$dbuser
-	DB pass:	$dbpass
-	DB host:	$dbhost
-	DB name:	$dbname
-	DB prefix:	$dbprefix
-	"
-		wpcli core is-installed
-		echo "SHOW STATUS WHERE variable_name = 'Threads_running';" | wpcli db query | grep "Threads_running" | sed "s|Threads_running|Active Connections:|g"
-		if [ $( wpcli db tables | grep -c ) -lt 1 ]; then
+	DB user:    $dbuser
+	DB pass:    $dbpass
+	DB host:    $dbhost
+	DB name:    $dbname
+	DB prefix:  $dbprefix
+		"
+		wpcli core is-installed || echo
+		wpcli db query "SHOW STATUS WHERE variable_name = 'Threads_running';" | grep "Threads_running" | sed "s|Threads_running|Active Connections:|g"
+		if [ $( wpcli db tables | egrep -c "^$dbprefix" ) -lt 1 ]; then
 			echo 'Connected with no errors, but no tables that match specified prefix!'
 		fi
 
-	elif [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+	elif [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
 		echo "
 	cli           Open a mysql console using the WordPress credentials.
 	create        Create the database, as specified in wp-config.php
@@ -509,35 +541,36 @@ wpdb()
 
 wpver()
 {
-	if [[ $1 == "--help" || $1 == "-h" ]]; then
+	wpenv
+
+	if [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
 		echo -e "
-This tool returns the current install's file and database versions.
-
-  Usage:
-
-\twpver [option]
-
-\t    -h\n\t\tdisplay this help output
-"
+This tool returns the current install's version.
+		"
 		return
-	fi
-
-	echo "
+	elif [[ "$1" == "-q" ]]; then
+		wpcli core version
+	else
+		echo "
 	WP version:	$( wpcli core version )
-	"
+		"
+	fi
 }
 
 wpuser()
 {
+	wpenv
 
 	if [[ -z "$1" ]]; then
 		echo
 		wpcli user list
 		echo
 		return
-	elif [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+	elif [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
 		echo -e "
-This tool performs various user functions, including returning info for a specified user, changing usernames, passwords, changing a user to an admin, creating new admin users, and deleting users.\n
+This tool performs various user functions, including returning info for a specified
+user, changing usernames, passwords, changing a user to an admin, creating new admin
+users, and deleting users.
 USERID can be the user login, user email, or actual user ID of the user(s) to update.
 
 Usage:
@@ -545,8 +578,6 @@ Usage:
 
 	USERID
 		Returns details about specified user USERID
-	USERID -u NAME
-		change username of user USERID to NAME
 	USERID -p PASS
 		change password of user USERID to PASS
 	USERID -a
@@ -576,21 +607,22 @@ update           Update a user.
 		"
 		return
 	elif [[ "$2" == "-u" ]]; then
-		#yes, I know this gives a warning and does not work. I'm assuming there's a reason for that warning,
+		#Yes, I know this gives a warning and does not work. I'm assuming there's a reason for that warning,
 		#and not implementing a workaround because I'm also assuming that the reason is a good one. Rather
 		#than not implementing this feature at all, I'm including the command that should work instead to
-		#show users that it's not a good idea to update the username.
-		wpcli "user update "$1" --user_login="$3"" #contains workaround for --option bug
+		#show users that it's not a good idea to update the username. This option is not in the help text
+		#and should be considered deprecated; it is included only for legacy purposes.
+		wpcli user update "$1" --user_login="$3" 
 		return
 	elif [[ "$2" == "-p" ]]; then
-		wpcli "user update "$1" --user_pass="$3"" #contains workaround for --option bug
+		wpcli user update "$1" --user_pass="$3" 
 		return
 	elif [[ "$2" == "-a" ]]; then
-		wpcli "user add-role "$1" administrator" #contains workaround for --option bug
+		wpcli user add-role "$1" administrator 
 		return
 	elif [[ "$2" == "-d" ]]; then
 		if [[ -n "$3" ]]; then
-			wpcli "user delete "$1" --reassign="$3"" #contains workaround for --option bug
+			wpcli user delete "$1" --reassign="$3" 
 		else
 			wpcli user delete "$1"
 		fi
@@ -618,11 +650,12 @@ update           Update a user.
 		read -rp "Password [randomly generated]: " password
 
 		if [[ -z "$password" ]]; then
-			wpcli "user create "$username" "$email" --role=administrator" #contains workaround for --option bug
+			wpcli user create "$username" "$email" --role=administrator 
 		else
-			wpcli "user create "$username" "$email" --role=administrator --user_pass="$password"" #contains workaround for --option bug
+			wpcli user create "$username" "$email" --role=administrator --user_pass="$password"
 		fi
 
+		unset password
 		echo
 		return
 	elif [[ -z "$2" ]]; then
@@ -635,81 +668,58 @@ update           Update a user.
 	fi
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-#
-#
-#
-#
-#Code beyond this point has not been reviewed, enter at your own risk...
-#
-#Commits welcome :)
-#
-#
-#
-#
-
-
-
 wpplug()
 {
-	if [[ -z "$1" ]]; then
-		#contains workaround for --option bug
-		echo "
-Active plugins:
-	"$( wpcli "plugin list --status=active --fields=name" | sed -n "2,$ p" )"
+	wpenv
 
-Available plugins:
-	"$( wpcli "plugin list --fields=name" | sed -n "2,$ p" )"	
-		"
+	if [[ -z "$1" ]]; then
+		echo
+		wpcli plugin status
+		echo
 		return
-	elif [[ "$1" == "--help" || "$1" == "-h" || "$1" == "help" ]]; then
+	elif [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
 		echo -e "
 Basic plugin functions.
 
-	activate          Activate a plugin.
-	active            List active plugins
-	deactivate        Deactivate a plugin.
-	delete            Delete plugin files.
-	get               Get a plugin.
-	install           Install a plugin.
-	is-installed      Check if the plugin is installed.
-	list              Get a list of plugins.
-	path              Get the path to a plugin or to the plugin directory.
-	search            Search the wordpress.org plugin repository.
-	status            See the status of one or all plugins.
-	toggle            Toggle a plugin's activation state.
-	uninstall         Uninstall a plugin.
-	update            Update one or more plugins.
+	-a, activate [--all]     Activate one or more plugins.
+	-d, deactivate [--all]   Deactivate one or more plugins.
+	delete                   Delete plugin files.
+	get                      Get a plugin.
+	install                  Install a plugin.
+	is-installed             Check if the plugin is installed.
+	list                     Get a list of plugins.
+	path                     Get the path to a plugin or to the plugin directory.
+	search                   Search the wordpress.org plugin repository.
+	status                   See the status of one or all plugins.
+	toggle                   Toggle a plugin's activation state.
+	uninstall                Uninstall a plugin.
+	-u, update [--all]       Update one or more plugins.
 		"
 		return
-	elif [[ "$1" == "active" ]]; then
-		echo "
-Active plugins:
-	"$( wpcli "plugin list --status=active --fields=name" | sed -n "2,$ p" )"
-		"
-		return
-	elif [[ "$1" == "-d" ]]; then
-		wpcli plugin deactivate --all
-		return
-	elif [[ "$1" == "" ]]; then
-
-	elif [[ "$1" == "" ]]; then
-
-	elif [[ "$1" == "" ]]; then
-
-	elif [[ "$1" == "" ]]; then
-
+	elif [[ "$1" == "-d" ]] || [[ "$1" == "deactivate" && (( "$2" == "-all" || "$2" == "--all" )) ]]; then
+		active_plugins=( $( wpcli plugin list --status=active --fields=name | sed -n "2,$ p" ) )
+		if [[ -z "${active_plugins[@]}" ]]; then
+			echo 'No plugins active!'
+		else
+			wpcli plugin deactivate ${active_plugins[@]}
+		fi
+	elif [[ "$1" == "-a" ]] || [[ "$1" == "activate" && (( "$2" == "-all" || "$2" == "--all" )) ]]; then
+		#The point of this is to check if someone ran a deactivate --all already, and if so, reactivate
+		#only the plugins that were deactivated the first time. Otherwise, activate all plugins. If you
+		#run this twice, it'll activate all plugins regardless.
+		inactive_plugins=( $( wpcli plugin list --status=inactive --fields=name | sed -n "2,$ p" ) )
+		if [[ -z "${active_plugins[@]}" ]]; then
+			if [[ -n "${inactive_plugins[@]}" ]]; then
+				wpcli plugin activate ${inactive_plugins[@]}
+			else
+				echo 'All plugins active!'
+			fi
+		else
+			wpcli plugin activate ${active_plugins[@]}
+			unset active_plugins
+		fi
+	elif [[ "$1" == "-u" ]] || [[ "$1" == "update" && "$2" == "-all" ]]; then
+		wpcli plugin update --all
 	else
 		#pipe output to sed to fix usage text, but this breaks read prompts like in wpcli user delete :(
 		wpcli user "$@" # | sed "s|wp user|wpuser|g"
@@ -717,59 +727,12 @@ Active plugins:
 	fi
 }
 
-
-
-
-
-
-
-
-
-
-
-wpplug()
-{
-	echo
-	folder=wp-content/plugins
-	if [[ $1 == "--help" || $1 == "-h" ]]; then
-		echo -e "This tool does basic plugin functions, such as displaying active and available plugins, or disabling them all.\n"
-		echo -e "Usage:\n"
-		echo -e "\twpplug [option]\n"
-		echo -e "\t-d\n\t\tdisable all plugins by renaming the plugins folder\n"
-		return
-	elif [[ ! -d $folder ]]; then echo "The $folder folder was not found"! && return 9
-	elif [[ ! -f wp-config.php ]]; then echo Could not find wp-config.php! && return 9
-	fi
-	if [[ $1 == "-d" ]]; then
-		temp=$(now)
-		mv $folder "$folder"_$temp && echo "Moved plugins to $folder"_$temp...
-	elif [[ -z $1 ]]; then
-		echo -e "Active plugins:\n"
-		wpconn "wpplug"
-		active=$(echo "$myconn" | tail -n +2)
-		php-cli -r "print_r(unserialize('$active'));" | grep "=>" | sed "s|.*=> \(.*\)|\t\1|"
-		echo
-		echo -e "Available plugins:\n"
-		ls -F $folder |grep "/"|grep -v "^\."|sed "s|^\(.*\)/|\t\1|" #ls -A is overwritten by default $LS_OPTIONS in alias
-	fi
-	echo
-}
-
-
-
-wptool()
+wphelp()
 {
   echo -e "
-  _       ______  __              __
- | |     / / __ \/ /_____  ____  / /
- | | /| / / /_/ / __/ __ \/ __ \/ /
- | |/ |/ / ____/ /_/ /_/ / /_/ / /
- |__/|__/_/    \__/\____/\____/_/
-					a toolkit production
-
-  WPtool $wptoolv is suite of bash functions to administer Wordpress installs.
-  It assumes you are running said functions in the site's root folder. Each
-  command listed below each have a -h option for more specific information:
+  The following are bash functions that call /usr/bin/wp to administer Wordpress
+  installs. It assumes you are running said functions in the site's root folder.
+  Most commands listed below have a -h option for more specific information:
   
 	wpstats:  basic overview
 	wpurl:    URL tools
