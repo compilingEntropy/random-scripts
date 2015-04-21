@@ -720,7 +720,7 @@ Basic plugin functions.
 		wpcli plugin update --all
 	else
 		#pipe output to sed to fix usage text, but this breaks read prompts like in wpcli user delete :(
-		wpcli user "$@" # | sed "s|wp user|wpuser|g"
+		wpcli plugin "$@" # | sed "s|wp user|wpuser|g"
 		return
 	fi
 }
