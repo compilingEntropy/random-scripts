@@ -41,7 +41,6 @@
 # ----------------------------
 # 
 # > wpht() should be fixed once the feature gets implemented
-# > wpfix() needs QA
 # 
 # 
 # 
@@ -92,7 +91,7 @@ wpcore()
 	wpenv
 
 	#clean up cache, this is required because there's a bug that causes update to fail when it tries using a cached file
-	rm -rf /home2/"$(whoami)"/.wp-cli/cache/core/*
+	rm -rf ~/.wp-cli/cache/core/*
 
 	#Display help information
 	helpText()
@@ -237,14 +236,14 @@ version                Display the WordPress version.
 
 			default="localhost"
 			unset dbhost
-			read -rp "Password [$default]: " dbhost
+			read -rp "Hostname [$default]: " dbhost
 			if [[ -z "$dbhost" ]]; then
 				dbhost="$default"
 			fi
 
-			default="_wp"
+			default="wp_"
 			unset dbprefix
-			read -rp "Password [$default]: " dbprefix
+			read -rp "Table prefix [$default]: " dbprefix
 			if [[ -z "$dbprefix" ]]; then
 				dbprefix="$default"
 			fi
@@ -276,6 +275,11 @@ version                Display the WordPress version.
 	#	databaseVersion
 	elif [[ "$arg" =~ $version_regex ]]; then
 		selectedVersion
+	elif [[ "$arg" =~ [[:digit:]] ]]; then
+		echo 'Unknown Wordpress version specified!'
+		echo "Wordpress versions can be either #.# or #.#.#"
+		helpText
+		return 9
 	elif [[ "$arg" == "latest" || -z "$arg" ]]; then
 		latestVersion
 	elif [[ "$arg" == "config" ]]; then
@@ -348,7 +352,26 @@ wpfix()
 	wpenv
 
 	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ || "$1" == "help" ]]; then
-		echo "This tool runs various built-in Wordpress functions and fixes."
+		echo "
+  This tool runs various built-in Wordpress functions and fixes. Running this command by
+  by itself runs some safe fixes. There are also some unsafe fixes listed below. It is
+  recommended that you know what you're doing before you run these, and have a backup.
+
+	Usage: wpfix --hard #
+
+  Unsafe Fixes
+  ============
+  [all] Prompt for all options
+  [0] Rewrite htaccess file
+  [1] Reset all roles to default capabilities
+  [2] Regenerate all thumbnail images
+  [3] Update all plugins
+  [4] Update all themes
+  [5] Update to latest WordPress version
+  [6] Delete all transients
+  [7] Delete all comments that have been marked as spam
+  [8] Delete all comments that have not been approved
+		"
 		return 0
 	fi
 	#not built in, but solves more problems than you'd think
@@ -363,55 +386,92 @@ wpfix()
 
 
 	###HARD FIXES###
-	#would be good to get a menu going
 	if [[ "$1" == "--hard" ]]; then
-		yes="^[yY][eE]?[sS]?$"
-		echo "For the following question, the default answer is no."
-		echo "It is recommended that you know what you're doing before you run these, and have a backup."
-		unset response
+		if [[ -z "$2" ]]; then
+			echo
+			echo "No option given, prompting for all."
+			ans="all"
+		else
+			ans="$2"
+		fi
 
-		read -rp "Rewrite htaccess file? [y/n]: " response
-		if [[ "$response" =~ $yes ]]; then
-			wpht
-			unset response
-		fi
-		read -rp "Reset all roles to default capabilities? [y/n]: " response
-		if [[ "$response" =~ $yes ]]; then
-			wpcli role reset --all
-			unset response
-		fi
-		wpcli media regenerate --yes #prompts on its own
-		read -rp "Update all plugins? [y/n]: " response
-		if [[ "$response" =~ $yes ]]; then
-			wpcli plugin update --all
-			unset response
-		fi
-		read -rp "Update all themes? [y/n]: " response
-		if [[ "$response" =~ $yes ]]; then
-			wpcli theme update --all
-			unset response
-		fi
-		read -rp "Update to latest WordPress version? [y/n]: " response
-		if [[ "$response" =~ $yes ]]; then
-			wpcli core update
-			unset response
-		fi
-		read -rp "Delete all transients? [y/n]: " response
-		if [[ "$response" =~ $yes ]]; then
-			wpcli transient delete-all
-			unset response
-		fi
-		read -rp "Delete all comments that have been marked as spam? [y/n]: " response
-		if [[ "$response" =~ $yes ]]; then
-			#delete spam comments
-			wp comment delete $( wp comment list --status=spam --format=ids )
-			unset response
-		fi
-		read -rp "Delete all comments that have not been approved? [y/n]: " response
-		if [[ "$response" =~ $yes ]]; then
-			#delete unapproved comments
-			wp comment delete $( wp comment list --status=unapproved --format=ids )
-			unset response
+		yes="^[yY][eE]?[sS]?$"
+
+		fix0()
+		{
+			read -rp "Rewrite htaccess file? [y/n]: " response
+			if [[ "$response" =~ $yes ]]; then
+				wpht
+			fi
+		}
+		fix1()
+		{
+			read -rp "Reset all roles to default capabilities? [y/n]: " response
+			if [[ "$response" =~ $yes ]]; then
+				wpcli role reset --all
+			fi
+		}
+		fix2()
+		{
+			wpcli media regenerate #prompts on its own
+		}
+		fix3()
+		{
+			read -rp "Update all plugins? [y/n]: " response
+			if [[ "$response" =~ $yes ]]; then
+				wpcli plugin update --all
+			fi
+		}
+		fix4()
+		{
+			read -rp "Update all themes? [y/n]: " response
+			if [[ "$response" =~ $yes ]]; then
+				wpcli theme update --all
+			fi
+		}
+		fix5()
+		{
+			read -rp "Update to latest WordPress version? [y/n]: " response
+			if [[ "$response" =~ $yes ]]; then
+				wpcli core update
+			fi
+		}
+		fix6()
+		{
+			read -rp "Delete all transients? [y/n]: " response
+			if [[ "$response" =~ $yes ]]; then
+				wpcli transient delete-all
+			fi
+		}
+		fix7()
+		{
+			read -rp "Delete all comments that have been marked as spam? [y/n]: " response
+			if [[ "$response" =~ $yes ]]; then
+				#delete spam comments
+				wp comment delete $( wp comment list --status=spam --format=ids )
+			fi
+		}
+		fix8()
+		{
+			read -rp "Delete all comments that have not been approved? [y/n]: " response
+			if [[ "$response" =~ $yes ]]; then
+				#delete unapproved comments
+				wp comment delete $( wp comment list --status=unapproved --format=ids )
+			fi
+		}
+
+		echo
+		unset response
+		if [[ "$ans" == "all" ]]; then
+			echo "For the following questions, the default answer is no."
+			for (( i = 0; i <= 8; i++ )); do
+				unset response
+				fix"$i"
+			done
+		elif [[ "$ans" =~ [0-8] ]]; then
+			fix"$ans"
+		else
+			echo "Fix not listed."
 		fi
 	fi
 }
@@ -427,14 +487,15 @@ wpstats()
 	else
 		version="$wp_version"
 	fi
-	echo "
-	WP version:   $version
-	user:         $( wpcli user list --fields=id,user_login | sort -n | sed -n "2p" | cut -f 2 2> /dev/null )
-	home:         $( wpcli option get home 2> /dev/null )
-	siteurl:      $( wpcli option get siteurl 2> /dev/null )
-	stylesheet:   $( wpcli option get stylesheet 2> /dev/null )
-	template:     $( wpcli option get template 2> /dev/null )
-	"
+
+	echo
+	echo "	WP version:   $version"
+	echo "	user:         $( wpcli user list --fields=id,user_login | sort -n | sed -n "2p" | cut -f 2 2> /dev/null )"
+	echo "	home:         $( wpcli option get home 2> /dev/null )"
+	echo "	siteurl:      $( wpcli option get siteurl 2> /dev/null )"
+	echo "	stylesheet:   $( wpcli option get stylesheet 2> /dev/null )"
+	echo "	template:     $( wpcli option get template 2> /dev/null )"
+	echo
 	
 	#harmless fix so we can use cut in a sec even if their quotes are jacked up
 	sed "s/[‘’]/'/g" -i ./wp-config.php
@@ -442,7 +503,7 @@ wpstats()
 	dbprefix="$( grep "table_prefix" ./wp-config.php | cut -d \' -f 2 )"
 	wpcli core is-installed || echo
 	wpcli db query "SHOW STATUS WHERE variable_name = 'Threads_running';" | grep "Threads_running" | sed "s|Threads_running|Active Connections:|g"
-	if [[ -z "$dbprefix" ]] && [ $( wpcli db tables 2> /dev/null | egrep -c "^$dbprefix" ) -lt 1 ]; then
+	if [[ -z "$dbprefix" ]] && (( $( wpcli db tables 2> /dev/null | egrep -c "^$dbprefix" ) < 1 )); then
 		echo 'Connected with no errors, but no tables that match specified prefix!'
 	fi
 	wpcli core verify-checksums 1> /dev/null
@@ -524,11 +585,9 @@ wpdb()
 
 		wpcli core is-installed || echo
 		wpcli db query "SHOW STATUS WHERE variable_name = 'Threads_running';" | grep "Threads_running" | sed "s|Threads_running|Active Connections:|g"
-		if [[ -z "$dbprefix" ]] && [ $( wpcli db tables 2> /dev/null | egrep -c "^$dbprefix" ) -lt 1 ]; then
+		if [[ -z "$dbprefix" ]] && (( $( wpcli db tables 2> /dev/null | egrep -c "^$dbprefix" ) < 1 )); then
 			echo 'Connected with no errors, but no tables that match specified prefix!'
 		fi
-	elif [[ "$1" == "update-db" ]]; then
-		wpcli core update-db
 	elif [[ "$1" == "--help" || "$1" =~ ^-[hH]$ ]] || [[ "$1" == "help" && -z "$2" ]]; then
 		echo "
 	cli           Open a mysql console using the WordPress credentials.
@@ -543,7 +602,8 @@ wpdb()
 	tables        List the database tables.
 	update-db     Update the WordPress database.
 		"
-		return
+	elif [[ "$1" == "update-db" ]]; then
+		wpcli core update-db
 	elif [[ "$1" == "help" && -n "$2" ]]; then
 		wpcli help db "$@"
 	else
@@ -559,7 +619,6 @@ wpver()
 		echo "
 This tool returns the current install's version.
 		"
-		return
 	elif [[ "$1" == "-q" ]]; then
 		wpcli core version
 	else
