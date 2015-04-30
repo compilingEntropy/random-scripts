@@ -30,7 +30,7 @@
 # > 'wpstats' does not run tests on index.php or wp-admin/index.php
 # > wpuser -u does not work for reasons.
 # > wpver() does not get db version, and therefore wpcore() can't download db version #note, you can get db version with wpcli core version --extra, possibly implement db version later
-# 
+# > more things
 # 
 # 
 ###
@@ -97,11 +97,10 @@ wpcore()
 	helpText()
 	{
 		echo "
-This tool downloads the latest core, a new core of the current version, or a
-specified version.
-
-Usage:
-
+  This tool downloads the latest core, a new core of the current version, or a
+  specified version.
+  
+  Usage:
 	wpcore [VERSION]
 
 		<blank>
@@ -113,21 +112,21 @@ Usage:
 		-h
 		display this help output
 
-Additional features:
-====================
-check-update           Check for update via Version Check API. Returns latest version if there's an update, or empty if no update available.
-config [--rebuild]     Generate or attempt to rebuild a wp-config.php file.
-download               Download core WordPress files.
-install                Create the WordPress tables in the database.
-is-installed           Determine if the WordPress tables are installed.
-language               Modify or activate languages.
-multisite-convert      Transform a single-site install into a multi-site install.
-multisite-install      Install multisite from scratch.
-update                 Update WordPress.
-update-db              Update the WordPress database.
-verify-checksums       Verify WordPress files against WordPress.org's checksums.
-version                Display the WordPress version.
-"
+  Additional features:
+  ====================
+  check-update           Check for update via Version Check API. Returns latest version if there's an update, or empty if no update available.
+  config [--rebuild]     Generate or attempt to rebuild a wp-config.php file.
+  download               Download core WordPress files.
+  install                Create the WordPress tables in the database.
+  is-installed           Determine if the WordPress tables are installed.
+  language               Modify or activate languages.
+  multisite-convert      Transform a single-site install into a multi-site install.
+  multisite-install      Install multisite from scratch.
+  update                 Update WordPress.
+  update-db              Update the WordPress database.
+  verify-checksums       Verify WordPress files against WordPress.org's checksums.
+  version                Display the WordPress version.
+		"
 	}
 
 	##TODO: fix the version stuff, sanitize
@@ -638,12 +637,12 @@ wpuser()
 		echo
 	elif [[ "$1" == "--help" || "$1" =~ ^-[hH]$ ]] || [[ "$1" == "help" && -z "$2" ]]; then
 		echo "
-This tool performs various user functions, including returning info for a specified
-user, changing usernames, passwords, changing a user to an admin, creating new admin
-users, and deleting users.
-USERID can be the user login, user email, or actual user ID of the user(s) to update.
-
-Usage:
+  This tool performs various user functions, including returning info for a specified
+  user, changing usernames, passwords, changing a user to an admin, creating new admin
+  users, and deleting users.
+  USERID can be the user login, user email, or actual user ID of the user(s) to update.
+  
+  Usage:
 	wpuser [param [option [param]]]
 
 	USERID
@@ -658,22 +657,22 @@ Usage:
 	-n, new
 		create new admin user
 
-Additional features:
-====================
-add-cap          Add a capability for a user.
-add-role         Add a role for a user.
-create           Create a user.
-delete           Delete one or more users from the current site.
-generate         Generate users.
-get              Get a single user.
-import-csv       Import users from a CSV file.
-list             List users.
-list-caps        List all user's capabilities.
-meta             Manage user custom fields.
-remove-cap       Remove a user's capability.
-remove-role      Remove a user's role.
-set-role         Set the user role (for a particular blog).
-update           Update a user.
+  Additional features:
+  ====================
+  add-cap          Add a capability for a user.
+  add-role         Add a role for a user.
+  create           Create a user.
+  delete           Delete one or more users from the current site.
+  generate         Generate users.
+  get              Get a single user.
+  import-csv       Import users from a CSV file.
+  list             List users.
+  list-caps        List all user's capabilities.
+  meta             Manage user custom fields.
+  remove-cap       Remove a user's capability.
+  remove-role      Remove a user's role.
+  set-role         Set the user role (for a particular blog).
+  update           Update a user.
 		"
 	elif [[ "$1" == "help" && -n "$2" ]]; then
 		wpcli help user "$@"
@@ -740,8 +739,6 @@ wpplug()
 		echo
 	elif [[ "$1" == "--help" || "$1" =~ ^-[hH]$ ]] || [[ "$1" == "help" && -z "$2" ]]; then
 		echo "
-Basic plugin functions.
-
 	-a, activate [--all]     Activate one or more plugins.
 	-d, deactivate [--all]   Deactivate one or more plugins.
 	delete                   Delete plugin files.
@@ -789,7 +786,7 @@ Basic plugin functions.
 
 wphelp()
 {
-  echo "
+	echo "
   The following are bash functions that call /usr/bin/wp to administer Wordpress
   installs. It assumes you are running said functions in the site's root folder.
   Most commands listed below have a -h option for more specific information:
@@ -804,5 +801,5 @@ wphelp()
 	wpcore:   core replacement tools
 	wpfix:    built-in WP fixes
 	wpver:    returns version info
-"
+	"
 }
