@@ -29,7 +29,7 @@
 # > old Wordpress files are no longer in 'core_$timestamp', they'll now be in 'oldwp_$timestamp'
 # > 'wpstats' does not run tests on index.php or wp-admin/index.php
 # > wpuser -u does not work for reasons.
-# > wpver() does not get db version, and therefore wpcore() can't download db version
+# > wpver() does not get db version, and therefore wpcore() can't download db version #note, you can get db version with wpcli core version --extra, possibly implement db version later
 # 
 # 
 # 
@@ -40,25 +40,23 @@
 # Things to fix
 # ----------------------------
 # 
-# > replace wpcore() with wpcli core, maybe (more testing required)
-# > wpht() in general just needs some serious QA testing, r&d
+# > wpht() should be fixed once the feature gets implemented
 # > wpfix() needs QA
-# > be consistent with returns
-# > remove -e from echo when not necessary
 # 
 # 
 # 
 ###
 
 
-
+version_regex="\b([[:digit:]]\.[[:digit:]]{1,2}|[[:digit:]]\.[[:digit:]]\.[[:digit:]]{1,2})\b"
+sha1_regex="\b[[:xdigit:]]{40}\b"
 
 #untested on old versions of wordpress
 wpenv()
 {
 	#set appropriate wp binary env
 	if [[ -f ./wp-includes/version.php ]]; then
-		wp_version="$( php-cli -r 'require_once("./wp-includes/version.php"); echo "$wp_version";' )"
+		wp_version="$( egrep -m 1 -o "$version_regex" ./wp-includes/version.php )"
 		#non-intuitive, but this checks if the version is greater than or equal to 3.5.2
 		if [[ "$( echo -e "3.5.2\n$wp_version" | sort -V | head -n 1 )" == "3.5.2" ]]; then
 			#greater than or equal to 3.5.2
@@ -82,22 +80,24 @@ wpenv()
 	fi
 }
 
-version_regex="^([[:digit:]]\.[[:digit:]]{1,2}|[[:digit:]]\.[[:digit:]]\.[[:digit:]]{1,2})$"
-sha1_regex="\b[[:xdigit:]]{40}\b"
-
-now() 
+now()
 {
-  date -u +"%Y%m%d-%H%M%S"
+	date -u +"%Y%m%d-%H%M%S"
 }
 
 wpcore()
 {
 	arg="$1"
 
+	wpenv
+
+	#clean up cache, this is required because there's a bug that causes update to fail when it tries using a cached file
+	rm -rf /home2/"$(whoami)"/.wp-cli/cache/core/*
+
 	#Display help information
 	helpText()
 	{
-		echo -e "
+		echo "
 This tool downloads the latest core, a new core of the current version, or a
 specified version.
 
@@ -113,6 +113,21 @@ Usage:
 		download new set of files matching current file version
 		-h
 		display this help output
+
+Additional features:
+====================
+check-update           Check for update via Version Check API. Returns latest version if there's an update, or empty if no update available.
+config [--rebuild]     Generate or attempt to rebuild a wp-config.php file.
+download               Download core WordPress files.
+install                Create the WordPress tables in the database.
+is-installed           Determine if the WordPress tables are installed.
+language               Modify or activate languages.
+multisite-convert      Transform a single-site install into a multi-site install.
+multisite-install      Install multisite from scratch.
+update                 Update WordPress.
+update-db              Update the WordPress database.
+verify-checksums       Verify WordPress files against WordPress.org's checksums.
+version                Display the WordPress version.
 "
 	}
 
@@ -120,8 +135,7 @@ Usage:
 	#Download new set of files matching current file version
 	fileVersion()
 	{
-		version="$( wpver -q )"
-		wpfile="wordpress-$version.tar.gz"
+		version="$( wpcli core version )"
 	}
 	#Download new set of files matching current database version
 #	databaseVersion()
@@ -139,184 +153,123 @@ Usage:
 		fi
 
 		version="$arg"
-		wpfile="wordpress-$version.tar.gz"
 	}
 	#Download new set of files matching current file version
 	latestVersion()
 	{
 		version="latest"
-		wpfile="latest.tar.gz"
 	}
 
-	#Download Wordpress package
-	getFile()
+	updateWordpress()
 	{
-		#verifies the file with an sha1 checksum
-		checkSha1()
-		{
-			if [[ -f "./$wpfile" ]]; then
-				sha1_remote="$( curl -sS "https://wordpress.org/$wpfile.sha1" | egrep -o "$sha1_regex" )"
-				if [[ "$sha1_remote" =~ $sha1_regex ]]; then
-					#successfully got remote sha1 checksum
-					sha1_local="$( sha1sum "./$wpfile" | egrep -o "$sha1_regex" )"
-					if [[ "$sha1_local" =~ $sha1_regex ]]; then
-						#successfully got local sha1 checksum
-						if [[ "$sha1_local" == "$sha1_remote" ]]; then
-							#checksum match
-							return 0
-						else
-							#checksum mismatch
-							echo -en '\nChecksum mismatch!'
-							rm -f "./$wpfile"
-							((i++))
-							return 9
-						fi
-					else
-						echo -en "\nError: Unable to get local sha1 checksum"
-						rm -f "./$wpfile"
-						return 9
-					fi
-				else
-					echo -en "\nError: Unable to get remote sha1 checksum"
-					return 9
-				fi
+		#update if we're currently in a wordpress directory, download otherwise
+		#basic workaround for incorrectly detected wp installs
+		#see https://github.com/wp-cli/wp-cli/issues/1811
+		if (( $( wp core is-installed &> /dev/null; echo $? ) == 0 )) && [[ -d ./wp-admin/ ]] && [[ -d ./wp-includes/ ]] && [[ -f ./wp-config.php ]]; then
+			if [[ "$version" == "latest" ]]; then
+				wpcli core update --force
 			else
-				#file does not exist
-				echo -n "Error: Download failed"
-				((i++))
+				wpcli core update --version="$version" --force
+			fi
+		else
+			if [[ "$version" == "latest" ]]; then
+				wpcli core download --force
+			else
+				wpcli core download --version="$version" --force
+			fi
+		fi
+	}
+
+	#Rebuild / generate config config
+	buildConfig()
+	{
+		if [[ "$1" == "--rebuild" ]]; then
+			if [[ ! -f ./wp-config.php ]]; then
+				echo 'No wp-config.php file available to rebuild!'
+				echo "Try: wpcore config"
 				return 9
 			fi
-		}
+			#harmless fix so we can use cut in a sec even if their quotes are jacked up
+			sed "s/[‘’]/'/g" -i ./wp-config.php
 
-		if [[ "$version" == "latest" ]]; then
-			echo -n "Downloading latest Wordpress..."
+			dbuser="$( grep "DB_USER" ./wp-config.php | cut -d \' -f 4 )"
+			dbpass="$( grep "DB_PASSWORD" ./wp-config.php | cut -d \' -f 4 )"
+			dbhost="$( grep "DB_HOST" ./wp-config.php | cut -d \' -f 4 )"
+			dbname="$( grep "DB_NAME" ./wp-config.php | cut -d \' -f 4 )"
+			dbprefix="$( grep "table_prefix" ./wp-config.php | cut -d \' -f 2 )"
+			
+			temp="wp-config_$( now )"
+			mv ./wp-config.php ./"$temp".php
+
+			wpcli core config --dbname="$dbname" --dbuser="$dbuser" --dbpass="$dbpass" --dbhost="$dbhost" --dbprefix="$dbprefix"
+			if (( $? != 0 )); then
+				mv ./"$temp".php ./wp-config.php
+				echo 'Rebuild failed!'
+			fi
 		else
-			echo -n "Downloading Wordpress $version..."
-		fi
-
-		if [[ ! -f "./$wpfile" ]]; then
-			wget -q "https://wordpress.org/$wpfile"
-		fi
-
-		TRIES=3
-
-		i=0
-		checkSha1
-		#try a few times if it fails
-		while (( $? != 0 && "$i" < "$TRIES" )); do
-			echo -en "\nRetrying..."
-			wget -q "https://wordpress.org/$wpfile"
-			checkSha1
-		done
-
-		#too many retries
-		if (( "$i" >= "$TRIES" )); then
-			echo -e "\nFatal Error: Could not download Wordpress."
-			return 9
-		fi
-
-		echo "done."
-		return 0
-	}
-
-	#Extract Wordpress
-	extractWordpress()
-	{
-		##build list of Wordpress files in pwd
-		#build list of possible wp files
-		possible_files=( $( tar -ztf "./$wpfile" | sed -e "s|^wordpress/||g" -e "s|/.*|/|g" -e "/^[[:space:]]*$/d" | sort -u ) )
-		possible_files=( "${possible_files[@]}" "wp-config.php" )
-		#build list of actual files
-		for file in "${possible_files[@]}"; do
-			if [[ -e "./$file" ]]; then
-				actual_files=( "${actual_files[@]}" "$file" )
+			if [[ -f ./wp-config.php ]]; then
+				echo 'A wp-config.php file already exists!'
+				echo "The existing file will be replaced if you continue."
 			fi
-		done
+			echo
+			echo "Enter database connection settings below:"
 
-		old_wp="oldwp_$( now )"
-
-		#rebuild a temp array without index.php
-		actual_files_temp=( ${actual_files[@]/index.php/} )
-
-		#if there's old stuff that isn't index.php
-		if (( "${#actual_files_temp[@]}" > 0 )); then
-			echo -n "Moving old Wordpress files..."
-
-			#create old Wordpress folder
-			if [[ ! -d "./$old_wp/" ]]; then
-				mkdir "./$old_wp/"
+			default="$(whoami)_wp"
+			unset dbname
+			read -rp "Database name [$default]: " dbname
+			if [[ -z "$dbname" ]]; then
+				dbname="$default"
 			fi
 
-			#move old Wordpress files down into a new subdir
-			for file in "${actual_files[@]}"; do
-				if [[ -e "./$file" ]]; then
-					rsync -aq "./$file" "./$old_wp/$file"
-					if [[ $? == 0  && -e "./$old_wp/$file" ]]; then
-						rm -rf "./$file"
-					fi
-				fi
-			done
-
-			echo "done."
-		fi
-
-		echo -n "Extracting Wordpress..."
-		
-		#extract the new Wordpress files into pwd
-		tar -xf "./$wpfile" --strip-components=1
-
-		didFail="0"
-		#test for successful extraction
-		for file in ${possible_files[@]/wp-config.php/}; do
-			if [[ ! -e "./$file" ]]; then
-				##TODO: retry extracting failed file
-				echo -en "\nError extracting $file"'!'
-				didFail="1"
+			default="$(whoami)_wp"
+			unset dbuser
+			read -rp "Username [$default]: " dbuser
+			if [[ -z "$dbuser" ]]; then
+				dbuser="$default"
 			fi
-		done
 
-		if (( "$didFail" == 1 )); then
-			echo -e "\nFatal Error: Could not extract $file."
-			return 9
-		fi
-
-		#remove $wpfile
-		rm -f "./$wpfile"
-
-		echo "done."
-
-		#if there was a wp-content dir in the old install, copy it into pwd and burn stock wp-content
-		if [[ -d "./$old_wp/wp-content/" ]]; then
-			echo -n "Moving in old wp-content..."
-
-			rm -rf "./wp-content/"
-			rsync -aq "./$old_wp/wp-content/" "./wp-content/"
-
-			echo "done."
-		fi		
-
-		#move in old wp-config.php if it exists
-		if [[ -f "./$old_wp/wp-config.php" ]]; then
-			echo -n "Moving in old wp-config.php..."
-
-			if [[ -f "./wp-config.php" ]]; then
-				rm -f "./wp-config.php"
+			default="strings /dev/urandom | egrep -o "[[:alnum:]]" | head -n 20 | tr -d "\n""
+			unset dbpass
+			read -rp "Password [$default]: " dbpass
+			if [[ -z "$dbpass" ]]; then
+				dbpass="$default"
 			fi
-			rsync -aq "./$old_wp/wp-config.php" "./wp-config.php"
 
-			echo "done."
-		else
-			#otherwise, move in wp-config-sample.php
-			mv "./wp-config-sample.php" "./wp-config.php"
+			default="localhost"
+			unset dbhost
+			read -rp "Password [$default]: " dbhost
+			if [[ -z "$dbhost" ]]; then
+				dbhost="$default"
+			fi
+
+			default="_wp"
+			unset dbprefix
+			read -rp "Password [$default]: " dbprefix
+			if [[ -z "$dbprefix" ]]; then
+				dbprefix="$default"
+			fi
+
+
+			if [[ -f ./wp-config.php ]]; then
+				mv ./wp-config.php ./wp-config_"$( now )".php
+			fi
+
+			wpcli core config --dbname="$dbname" --dbuser="$dbuser" --dbpass="$dbpass" --dbhost="$dbhost" --dbprefix="$dbprefix"
+			if (( $? != 0 )); then
+				wpcli core config --dbname="$dbname" --dbuser="$dbuser" --dbpass="$dbpass" --dbhost="$dbhost" --dbprefix="$dbprefix" --skip-check &> /dev/null
+			fi
+
+			unset dbpass
 		fi
-
-		return 0
 	}
 
 	#process user input
-	if [[ "$arg" == "--help" || "$arg" =~ -[hH] ]]; then
+	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ ]] || [[ "$1" == "help" && -z "$2" ]]; then
 		helpText
 		return 0
+	elif [[ "$1" == "help" && -n "$2" ]]; then
+		wpcli help core "$@"
+		return $?
 	elif [[ "$arg" == "cur" || "$arg" == "file" ]]; then
 		fileVersion
 	#elif [[ "$arg" == "db" || "$arg" == "database" ]]; then
@@ -325,49 +278,46 @@ Usage:
 		selectedVersion
 	elif [[ "$arg" == "latest" || -z "$arg" ]]; then
 		latestVersion
+	elif [[ "$arg" == "config" ]]; then
+		buildConfig "$2"
+		return $?
 	else
-		echo 'Unknown Wordpress version specified!'
-		echo "Wordpress versions can be either #.# or #.#.#"
-		helpText
-		return 9
+		wpcli core "$@"
+		return $?
 	fi
 
-	getFile
-	if (( $? != 0 )); then
-		return 9
-	fi
-	extractWordpress
+	updateWordpress || return $?
+	wpcli core update-db
 }
-
-
-######untested code below#######
 
 
 wptheme()
 {
 	wpenv
 
-	if [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
+	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ ]] || [[ "$1" == "help" && -z "$2" ]]; then
 		echo "
-	activate          Activate a theme.
-	delete            Delete a theme.
-	disable           Disable a theme in a multisite install.
-	enable            Enable a theme in a multisite install.
-	fresh             Install twentyfifteen and set as active theme.
-	get               Get a theme.
-	install           Install a theme.
-	is-installed      Check if the theme is installed.
-	list              Get a list of themes.
-	mod               Manage theme mods.
-	path              Get the path to a theme or to the theme directory.
-	search            Search the wordpress.org theme repository.
-	status            See the status of one or all themes.
-	update [--all]    Update one or more themes.
-	use               Install and activate a theme.
+	activate              Activate a theme.
+	delete                Delete a theme.
+	disable               Disable a theme in a multisite install.
+	enable                Enable a theme in a multisite install.
+	fresh                 Install twentyfifteen and set as active theme.
+	get                   Get a theme.
+	install               Install a theme.
+	is-installed          Check if the theme is installed.
+	list                  Get a list of themes.
+	mod                   Manage theme mods.
+	path                  Get the path to a theme or to the theme directory.
+	search                Search the wordpress.org theme repository.
+	status                See the status of one or all themes.
+	-u, update [--all]    Update one or more themes.
+	use                   Install and activate a theme.
 
-	-s                Set only stylesheet: wptheme -s twentyfifteen
-	-t                Set only template: wptheme -t twentyfifteen
+	-s                    Set only stylesheet: wptheme -s twentyfifteen
+	-t                    Set only template: wptheme -t twentyfifteen
 		"
+	elif [[ "$1" == "help" && -n "$2" ]]; then
+		wpcli help theme "$@"
 	elif [[ -z "$1" ]]; then
 		echo
 		wpcli theme status
@@ -386,6 +336,8 @@ Details:
 		wpcli option update stylesheet "$2"
 	elif [[ "$1" == "-t" ]]; then
 		wpcli option update template "$2"
+	elif [[ "$1" == "-u" ]]; then
+		wpcli theme update --all
 	else
 		wpcli theme "$@"
 	fi
@@ -395,51 +347,105 @@ wpfix()
 {
 	wpenv
 
-	if [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
-		echo -e "This tool runs various built-in Wordpress functions and fixes."
-		return
+	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ || "$1" == "help" ]]; then
+		echo "This tool runs various built-in Wordpress functions and fixes."
+		return 0
 	fi
+	#not built in, but solves more problems than you'd think
+	sed "s/[‘’]/'/g" -i ./wp-config.php
 
 	wpcli cache flush
 	wpcli db repair | grep -v "OK"
 	wpcli db optimize | grep -v "OK"
 	wpcli core update-db
-	#wpcli rewrite flush --hard
 	wpcli transient delete-expired
+	wpcore config --rebuild
 
 
-#	###HARD FIXES###
-#	#probably gonna add a line by line prompt for these.
-#
-#	wpcli role reset
-#	wpcli media regenerate --yes
-#	wpcli plugin update --all
-#	wpcli theme update --all
-#	wpcli core update
-#	wpcli transient delete-all
-#
-#	#delete spam comments
-#	wp comment delete $( wp comment list --status=spam --format=ids )
-#	#delete unapproved comments
-#	wp comment delete $( wp comment list --status=unapproved --format=ids )
+	###HARD FIXES###
+	#would be good to get a menu going
+	if [[ "$1" == "--hard" ]]; then
+		yes="^[yY][eE]?[sS]?$"
+		echo "For the following question, the default answer is no."
+		echo "It is recommended that you know what you're doing before you run these, and have a backup."
+		unset response
+
+		read -rp "Rewrite htaccess file? [y/n]: " response
+		if [[ "$response" =~ $yes ]]; then
+			wpht
+			unset response
+		fi
+		read -rp "Reset all roles to default capabilities? [y/n]: " response
+		if [[ "$response" =~ $yes ]]; then
+			wpcli role reset --all
+			unset response
+		fi
+		wpcli media regenerate --yes #prompts on its own
+		read -rp "Update all plugins? [y/n]: " response
+		if [[ "$response" =~ $yes ]]; then
+			wpcli plugin update --all
+			unset response
+		fi
+		read -rp "Update all themes? [y/n]: " response
+		if [[ "$response" =~ $yes ]]; then
+			wpcli theme update --all
+			unset response
+		fi
+		read -rp "Update to latest WordPress version? [y/n]: " response
+		if [[ "$response" =~ $yes ]]; then
+			wpcli core update
+			unset response
+		fi
+		read -rp "Delete all transients? [y/n]: " response
+		if [[ "$response" =~ $yes ]]; then
+			wpcli transient delete-all
+			unset response
+		fi
+		read -rp "Delete all comments that have been marked as spam? [y/n]: " response
+		if [[ "$response" =~ $yes ]]; then
+			#delete spam comments
+			wp comment delete $( wp comment list --status=spam --format=ids )
+			unset response
+		fi
+		read -rp "Delete all comments that have not been approved? [y/n]: " response
+		if [[ "$response" =~ $yes ]]; then
+			#delete unapproved comments
+			wp comment delete $( wp comment list --status=unapproved --format=ids )
+			unset response
+		fi
+	fi
 }
 
-#unfinished maybe
 wpstats()
 {
 	wpenv
 
-	#perhaps do a wpcli core check-update alongside the version
-	#maybe check some things about the install such as checksums, database connectivity, etc
-	echo -e "
-	WP version:   $( wpcli core version )
-	UserID 1:     $( wpcli user get 1 --field='display_name' )
-	home:         $( wpcli option get home )
-	siteurl:      $( wpcli option get siteurl )
-	stylesheet:   $( wpcli option get stylesheet )
-	template:     $( wpcli option get template )
+	available_version="$( wpcli core check-update --field=version | egrep -o $version_regex )"
+	wp_version="$( wpcli core version )"
+	if [[ -z "$available_version" ]]; then
+		version="$wp_version ($available_version available)"
+	else
+		version="$wp_version"
+	fi
+	echo "
+	WP version:   $version
+	user:         $( wpcli user list --fields=id,user_login | sort -n | sed -n "2p" | cut -f 2 2> /dev/null )
+	home:         $( wpcli option get home 2> /dev/null )
+	siteurl:      $( wpcli option get siteurl 2> /dev/null )
+	stylesheet:   $( wpcli option get stylesheet 2> /dev/null )
+	template:     $( wpcli option get template 2> /dev/null )
 	"
+	
+	#harmless fix so we can use cut in a sec even if their quotes are jacked up
+	sed "s/[‘’]/'/g" -i ./wp-config.php
+
+	dbprefix="$( grep "table_prefix" ./wp-config.php | cut -d \' -f 2 )"
 	wpcli core is-installed || echo
+	wpcli db query "SHOW STATUS WHERE variable_name = 'Threads_running';" | grep "Threads_running" | sed "s|Threads_running|Active Connections:|g"
+	if [[ -z "$dbprefix" ]] && [ $( wpcli db tables 2> /dev/null | egrep -c "^$dbprefix" ) -lt 1 ]; then
+		echo 'Connected with no errors, but no tables that match specified prefix!'
+	fi
+	wpcli core verify-checksums 1> /dev/null
 }
 
 wpurl()
@@ -447,12 +453,12 @@ wpurl()
 	wpenv
 
 	if [[ -z "$1" ]]; then
-		echo -e "
+		echo "
 	home:      $( wpcli option get home )
 	siteurl:   $( wpcli option get siteurl )
 		"
-	elif [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
-		echo -e "This tool returns the current URL settings in the database, or updates them to a specified URL.
+	elif [[ "$1" == "--help" || "$1" =~ ^-[hH]$ || "$1" == "help" ]]; then
+		echo "This tool returns the current URL settings in the database, or updates them to a specified URL.
 
 	wpurl [URL]
 		"
@@ -474,9 +480,9 @@ wpht()
 {
 	wpenv
 
-	if [[ -f ./.htaccess ]]; then
-		cp ./.htaccess ./.htaccess_"$( now )"
-	fi
+#	if [[ -f ./.htaccess ]]; then
+#		cp ./.htaccess ./.htaccess_"$( now )"
+#	fi
 
 	#double check this
 	struct="$( wpcli option get permalink_structure )"
@@ -493,32 +499,37 @@ wpdb()
 {
 	wpenv
 
-	#get some database variables from wp-config.php
-	if [[ -f "./wp-config.php" ]]; then
-		dbuser="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_USER");' )"
-		dbpass="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_PASSWORD");' )"
-		dbhost="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_HOST");' )"
-		dbname="$( php-cli -r 'require_once("./wp-config.php"); echo constant("DB_NAME");' )"
-		dbprefix="$( php-cli -r 'require_once("./wp-config.php"); echo "$table_prefix";' )"
-	else
-		echo "Unable to locate the wp-config.php file, attempting to continue..."
-	fi
-
 	if [[ -z "$1" ]]; then
-		echo -e "
+		#get some database variables from wp-config.php
+		if [[ -f "./wp-config.php" ]]; then
+			#harmless fix so we can use cut in a sec even if their quotes are jacked up
+			sed "s/[‘’]/'/g" -i ./wp-config.php
+
+			dbuser="$( grep "DB_USER" ./wp-config.php | cut -d \' -f 4 )"
+			dbpass="$( grep "DB_PASSWORD" ./wp-config.php | cut -d \' -f 4 )"
+			dbhost="$( grep "DB_HOST" ./wp-config.php | cut -d \' -f 4 )"
+			dbname="$( grep "DB_NAME" ./wp-config.php | cut -d \' -f 4 )"
+			dbprefix="$( grep "table_prefix" ./wp-config.php | cut -d \' -f 2 )"
+		else
+			echo "Unable to locate the wp-config.php file, attempting to continue..."
+		fi
+
+		echo "
 	DB user:    $dbuser
 	DB pass:    $dbpass
 	DB host:    $dbhost
 	DB name:    $dbname
 	DB prefix:  $dbprefix
 		"
+
 		wpcli core is-installed || echo
 		wpcli db query "SHOW STATUS WHERE variable_name = 'Threads_running';" | grep "Threads_running" | sed "s|Threads_running|Active Connections:|g"
-		if [ $( wpcli db tables | egrep -c "^$dbprefix" ) -lt 1 ]; then
+		if [[ -z "$dbprefix" ]] && [ $( wpcli db tables 2> /dev/null | egrep -c "^$dbprefix" ) -lt 1 ]; then
 			echo 'Connected with no errors, but no tables that match specified prefix!'
 		fi
-
-	elif [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
+	elif [[ "$1" == "update-db" ]]; then
+		wpcli core update-db
+	elif [[ "$1" == "--help" || "$1" =~ ^-[hH]$ ]] || [[ "$1" == "help" && -z "$2" ]]; then
 		echo "
 	cli           Open a mysql console using the WordPress credentials.
 	create        Create the database, as specified in wp-config.php
@@ -530,8 +541,11 @@ wpdb()
 	repair        Repair the database.
 	reset         Remove all tables from the database.
 	tables        List the database tables.
+	update-db     Update the WordPress database.
 		"
 		return
+	elif [[ "$1" == "help" && -n "$2" ]]; then
+		wpcli help db "$@"
 	else
 		wpcli db "$@"
 	fi
@@ -541,8 +555,8 @@ wpver()
 {
 	wpenv
 
-	if [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
-		echo -e "
+	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ || "$1" == "help" ]]; then
+		echo "
 This tool returns the current install's version.
 		"
 		return
@@ -563,9 +577,8 @@ wpuser()
 		echo
 		wpcli user list
 		echo
-		return
-	elif [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
-		echo -e "
+	elif [[ "$1" == "--help" || "$1" =~ ^-[hH]$ ]] || [[ "$1" == "help" && -z "$2" ]]; then
+		echo "
 This tool performs various user functions, including returning info for a specified
 user, changing usernames, passwords, changing a user to an admin, creating new admin
 users, and deleting users.
@@ -603,7 +616,8 @@ remove-role      Remove a user's role.
 set-role         Set the user role (for a particular blog).
 update           Update a user.
 		"
-		return
+	elif [[ "$1" == "help" && -n "$2" ]]; then
+		wpcli help user "$@"
 	elif [[ "$2" == "-u" ]]; then
 		#Yes, I know this gives a warning and does not work. I'm assuming there's a reason for that warning,
 		#and not implementing a workaround because I'm also assuming that the reason is a good one. Rather
@@ -611,21 +625,16 @@ update           Update a user.
 		#show users that it's not a good idea to update the username. This option is not in the help text
 		#and should be considered deprecated; it is included only for legacy purposes.
 		wpcli user update "$1" --user_login="$3" 
-		return
 	elif [[ "$2" == "-p" ]]; then
 		wpcli user update "$1" --user_pass="$3" 
-		return
 	elif [[ "$2" == "-a" ]]; then
 		wpcli user add-role "$1" administrator 
-		return
 	elif [[ "$2" == "-d" ]]; then
 		if [[ -n "$3" ]]; then
 			wpcli user delete "$1" --reassign="$3" 
 		else
 			wpcli user delete "$1"
 		fi
-
-		return
 	elif [[ "$1" == "-n" || "$1" == "new" ]]; then
 		echo
 
@@ -655,14 +664,10 @@ update           Update a user.
 
 		unset password
 		echo
-		return
 	elif [[ -z "$2" ]]; then
 		wpcli user get "$1"
-		return
 	else
-		#pipe output to sed to fix usage text, but this breaks read prompts like in wpcli user delete :(
-		wpcli user "$@" # | sed "s|wp user|wpuser|g"
-		return
+		wpcli user "$@"
 	fi
 }
 
@@ -674,9 +679,8 @@ wpplug()
 		echo
 		wpcli plugin status
 		echo
-		return
-	elif [[ "$1" == "--help" || "$1" =~ -[hH] || "$1" == "help" ]]; then
-		echo -e "
+	elif [[ "$1" == "--help" || "$1" =~ ^-[hH]$ ]] || [[ "$1" == "help" && -z "$2" ]]; then
+		echo "
 Basic plugin functions.
 
 	-a, activate [--all]     Activate one or more plugins.
@@ -693,7 +697,8 @@ Basic plugin functions.
 	uninstall                Uninstall a plugin.
 	-u, update [--all]       Update one or more plugins.
 		"
-		return
+	elif [[ "$1" == "help" && -n "$2" ]]; then
+		wpcli help user "$@"
 	elif [[ "$1" == "-d" ]] || [[ "$1" == "deactivate" && (( "$2" == "-all" || "$2" == "--all" )) ]]; then
 		active_plugins=( $( wpcli plugin list --status=active --fields=name | sed -n "2,$ p" ) )
 		if [[ -z "${active_plugins[@]}" ]]; then
@@ -719,15 +724,13 @@ Basic plugin functions.
 	elif [[ "$1" == "-u" ]] || [[ "$1" == "update" && "$2" == "-all" ]]; then
 		wpcli plugin update --all
 	else
-		#pipe output to sed to fix usage text, but this breaks read prompts like in wpcli user delete :(
-		wpcli plugin "$@" # | sed "s|wp user|wpuser|g"
-		return
+		wpcli plugin "$@"
 	fi
 }
 
 wphelp()
 {
-  echo -e "
+  echo "
   The following are bash functions that call /usr/bin/wp to administer Wordpress
   installs. It assumes you are running said functions in the site's root folder.
   Most commands listed below have a -h option for more specific information:
