@@ -420,7 +420,7 @@ wpstats()
 {
 	wpenv
 
-	available_version="$( wpcli core check-update --field=version | egrep -o $version_regex )"
+	available_version="$( wpcli core check-update --field=version | egrep -m 1 -o $version_regex )"
 	wp_version="$( wpcli core version )"
 	if [[ -n "$available_version" ]]; then
 		version="$wp_version ($available_version available)"
