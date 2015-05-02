@@ -47,36 +47,32 @@
 ###
 
 
-version_regex="\b([[:digit:]]\.[[:digit:]]{1,2}|[[:digit:]]\.[[:digit:]]\.[[:digit:]]{1,2})\b"
-sha1_regex="\b[[:xdigit:]]{40}\b"
-
-#untested on old versions of wordpress
+#set appropriate wp binary env
 wpenv()
 {
-	#set appropriate wp binary env
-	if [[ -f ./wp-includes/version.php ]]; then
-		wp_version="$( egrep -m 1 -o "$version_regex" ./wp-includes/version.php )"
-		#non-intuitive, but this checks if the version is greater than or equal to 3.5.2
-		if [[ "$( echo -e "3.5.2\n$wp_version" | sort -V | head -n 1 )" == "3.5.2" ]]; then
-			#greater than or equal to 3.5.2
-			wpcli()
-			{
-				/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@"
-			}
-		else
+	#set wp_version if possible
+	wpver &> /dev/null
+
+	if [[ "$wp_version" =~ $version_regex ]]; then
+		#non-intuitive, but this checks if the version is less than 3.5.2
+		if [[ "$( echo -e "3.5.2\n$wp_version" | sort -V | head -n 1 )" != "3.5.2" ]]; then
 			#less than 3.5.2
 			wpcli()
 			{
 				/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@"
 			}
+			return $?
 		fi
 	else
+		#assume new
 		echo "Unable to detect Wordpress version, assuming > 3.5.2."
-		wpcli()
-		{
-			/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@"
-		}
 	fi
+
+	#greater than or equal to 3.5.2
+	wpcli()
+	{
+		/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@"
+	}
 }
 
 now()
@@ -133,7 +129,7 @@ wpcore()
 	#Download new set of files matching current file version
 	fileVersion()
 	{
-		version="$( wpcli core version )"
+		version="$( wpver -q )"
 	}
 	#Download new set of files matching current database version
 #	databaseVersion()
@@ -161,20 +157,16 @@ wpcore()
 	updateWordpress()
 	{
 		#update if we're currently in a wordpress directory, download otherwise
-		#basic workaround for incorrectly detected wp installs
-		#see https://github.com/wp-cli/wp-cli/issues/1811
-		if (( $( wp core is-installed &> /dev/null; echo $? ) == 0 )) && [[ -d ./wp-admin/ ]] && [[ -d ./wp-includes/ ]] && [[ -f ./wp-config.php ]]; then
-			if [[ "$version" == "latest" ]]; then
-				wpcli core update --force
-			else
-				wpcli core update --version="$version" --force
-			fi
+		if [[ -d ./wp-admin ]] && [[ -d ./wp-includes/ ]]; then
+			operation="update"
 		else
-			if [[ "$version" == "latest" ]]; then
-				wpcli core download --force
-			else
-				wpcli core download --version="$version" --force
-			fi
+			operation="download"
+		fi
+
+		if [[ "$version" == "latest" ]]; then
+			wpcli core "$operation" --force
+		else
+			wpcli core "$operation" --version="$version" --force
 		fi
 	}
 
@@ -376,9 +368,12 @@ wpfix()
 	#not built in, but solves more problems than you'd think
 	sed "s/[‘’]/'/g" -i ./wp-config.php
 
+	ColorOff=$'\e[0m'		# Text Reset
+	BGreen=$'\e[1;32m'		# Bold Green
+
 	wpcli cache flush
-	wpcli db repair | grep -v "OK"
-	wpcli db optimize | grep -v "OK"
+	wpcli db repair | grep -v "OK" | sed "s/Success:/${BGreen}Success:${ColorOff}/g"
+	wpcli db optimize | grep -v "OK" | sed "s/Success:/${BGreen}Success:${ColorOff}/g"
 	wpcli core update-db
 	wpcli transient delete-expired
 	wpcore config --rebuild
@@ -612,17 +607,30 @@ wpdb()
 
 wpver()
 {
-	wpenv
+	unset wp_version
+	version_regex="\b([[:digit:]]\.[[:digit:]]{1,2}|[[:digit:]]\.[[:digit:]]\.[[:digit:]]{1,2})\b"
+
 
 	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ || "$1" == "help" ]]; then
 		echo "
 This tool returns the current install's version.
 		"
-	elif [[ "$1" == "-q" ]]; then
-		wpcli core version
+		return 0
+	fi
+
+	if [[ -f ./wp-includes/version.php ]]; then
+		wp_version="$( egrep -m 1 -o "$version_regex" ./wp-includes/version.php )"
+	fi
+	if [[ ! "$wp_version" =~ $version_regex ]]; then
+		#have to call directly because we don't call wpenv in this function; if we do, we get a mean recursive case
+		wp_version="$( /usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp core version )"
+	fi
+
+	if [[ "$1" == "-q" ]]; then
+		echo "$wp_version"
 	else
 		echo "
-	WP version:	$( wpcli core version )
+	WP version:	$wp_version
 		"
 	fi
 }
