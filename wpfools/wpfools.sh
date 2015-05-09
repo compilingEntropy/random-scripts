@@ -466,7 +466,7 @@ wpfix()
 				unset response
 				fix"$i"
 			done
-		elif [[ "$ans" =~ [0-8] ]]; then
+		elif [[ "$ans" =~ ^[0-8]$ ]]; then
 			fix"$ans"
 		else
 			echo "Fix not listed."
@@ -479,7 +479,7 @@ wpstats()
 	wpenv
 
 	available_version="$( wpcli core check-update --field=version | egrep -m 1 -o $version_regex )"
-	wp_version="$( wpcli core version )"
+	wp_version="$( wpver -q 2> /dev/null )"
 	if [[ -n "$available_version" ]]; then
 		version="$wp_version ($available_version available)"
 	else
@@ -548,7 +548,7 @@ wpht()
 	if [[ -n "$struct" ]]; then
 		wpcli rewrite structure "$struct" --hard
 	else
-		#remove everything between BEGIN and END
+		##remove everything between BEGIN and END
 		#sed -i '/# BEGIN WordPress/,/# END WordPress/ d' ./.htaccess
 		sleep 0
 	fi
@@ -642,6 +642,8 @@ This tool returns the current install's version.
 wpuser()
 {
 	wpenv
+
+	functions=" add-cap add-role create delete generate get import-csv list list-caps meta remove-cap remove-role set-role update "
 
 	if [[ -z "$1" ]]; then
 		echo
@@ -758,7 +760,8 @@ wpuser()
 		fi
 
 		echo
-	elif [[ -z "$2" ]]; then
+	elif [[ ! "$functions" =~ " $1 " ]]; then
+		#if an argument is passed and it is not one of the functions
 		wpcli user get "$1"
 	else
 		wpcli user "$@"
@@ -793,7 +796,7 @@ wpplug()
 	elif [[ "$1" == "help" && -n "$2" ]]; then
 		wpcli help plugin ${@:2}
 	elif [[ "$1" == "-d" ]] || [[ "$1" == "deactivate" && (( "$2" == "-all" || "$2" == "--all" )) ]]; then
-		if [[ "$1" == "-d" ]] && [[ -n "$2" ]]; then
+		if [[ "$1" == "-d" && -n "$2" ]]; then
 			wpcli plugin deactivate ${@:2}
 		else
 			active_plugins=( $( wpcli plugin list --status=active --fields=name | sed -n "2,$ p" ) )
@@ -804,7 +807,7 @@ wpplug()
 			fi
 		fi
 	elif [[ "$1" == "-a" ]] || [[ "$1" == "activate" && (( "$2" == "-all" || "$2" == "--all" )) ]]; then
-		if [[ "$1" == "-a" ]] && [[ -n "$2" ]]; then
+		if [[ "$1" == "-a" && -n "$2" ]]; then
 			wpcli plugin activate ${@:2}
 		else
 			#The point of this is to check if someone ran a deactivate --all already, and if so, reactivate
@@ -823,7 +826,7 @@ wpplug()
 			fi
 		fi
 	elif [[ "$1" == "-u" ]] || [[ "$1" == "update" && "$2" == "-all" ]]; then
-		if [[ "$1" == "-u" ]] && [[ -n "$2" ]]; then
+		if [[ "$1" == "-u" && -n "$2" ]]; then
 			wpcli plugin update ${@:2}
 		else
 			wpcli plugin update --all
