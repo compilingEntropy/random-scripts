@@ -170,7 +170,7 @@ wpcore()
 		fi
 	}
 
-	#Rebuild / generate config config
+	#Rebuild / generate config
 	buildConfig()
 	{
 		if [[ "$1" == "--rebuild" ]]; then
@@ -249,8 +249,8 @@ wpcore()
 				wpcli core config --dbname="$dbname" --dbuser="$dbuser" --dbpass="$dbpass" --dbhost="$dbhost" --dbprefix="$dbprefix" --skip-check &> /dev/null
 			fi
 
-			unset dbpass
 		fi
+		unset dbpass
 	}
 
 	#process user input
@@ -258,7 +258,7 @@ wpcore()
 		helpText
 		return 0
 	elif [[ "$1" == "help" && -n "$2" ]]; then
-		wpcli help core "$@"
+		wpcli help core ${@:2}
 		return $?
 	elif [[ "$arg" == "cur" || "$arg" == "file" ]]; then
 		fileVersion
@@ -308,11 +308,11 @@ wptheme()
 	-u, update [--all]    Update one or more themes.
 	use                   Install and activate a theme.
 
-	-s                    Set only stylesheet: wptheme -s twentyfifteen
-	-t                    Set only template: wptheme -t twentyfifteen
+	-s                    Set only stylesheet:   wptheme -s twentyfifteen
+	-t                    Set only template:     wptheme -t twentyfifteen
 		"
 	elif [[ "$1" == "help" && -n "$2" ]]; then
-		wpcli help theme "$@"
+		wpcli help theme ${@:2}
 	elif [[ -z "$1" ]]; then
 		echo
 		wpcli theme status
@@ -332,7 +332,11 @@ Details:
 	elif [[ "$1" == "-t" ]]; then
 		wpcli option update template "$2"
 	elif [[ "$1" == "-u" ]]; then
-		wpcli theme update --all
+		if [[ -n "$2" ]]; then
+			wpcli theme update ${@:2}
+		else
+			wpcli theme update --all
+		fi
 	else
 		wpcli theme "$@"
 	fi
@@ -599,7 +603,7 @@ wpdb()
 	elif [[ "$1" == "update-db" ]]; then
 		wpcli core update-db
 	elif [[ "$1" == "help" && -n "$2" ]]; then
-		wpcli help db "$@"
+		wpcli help db ${@:2}
 	else
 		wpcli db "$@"
 	fi
@@ -683,35 +687,60 @@ wpuser()
   update           Update a user.
 		"
 	elif [[ "$1" == "help" && -n "$2" ]]; then
-		wpcli help user "$@"
-	elif [[ "$2" == "-u" ]]; then
+		wpcli help user ${@:2}
+	elif [[ "$1" == "-u" || "$2" == "-u" ]]; then
 		#Yes, I know this gives a warning and does not work. I'm assuming there's a reason for that warning,
 		#and not implementing a workaround because I'm also assuming that the reason is a good one. Rather
 		#than not implementing this feature at all, I'm including the command that should work instead to
 		#show users that it's not a good idea to update the username. This option is not in the help text
 		#and should be considered deprecated; it is included only for legacy purposes.
-		wpcli user update "$1" --user_login="$3" 
-	elif [[ "$2" == "-p" ]]; then
-		wpcli user update "$1" --user_pass="$3" 
-	elif [[ "$2" == "-a" ]]; then
-		wpcli user add-role "$1" administrator 
-	elif [[ "$2" == "-d" ]]; then
+		if [[ "$1" == "-u" ]]; then
+			login="$2"
+			username="$3"
+		elif [[ "$2" == "-u" ]]; then
+			login="$3"
+			username="$1"
+		fi
+		wpcli user update "$username" --user_login="$login" 
+	elif [[ "$1" == "-p" || "$2" == "-p" ]]; then
+		if [[ "$1" == "-p" ]]; then
+			password"$2"
+			username="$3"
+		elif [[ "$2" == "-p" ]]; then
+			password"$3"
+			username="$1"
+		fi
+		wpcli user update "$username" --user_pass="$password" 
+	elif [[ "$1" == "-a" || "$2" == "-a" ]]; then
+		if [[ "$1" == "-a" ]]; then
+			username="$2"
+		elif [[ "$2" == "-a" ]]; then
+			username="$1"
+		fi
+		wpcli user add-role "$username" administrator 
+	elif [[ "$1" == "-d" || "$2" == "-d" ]]; then
+		if [[ "$1" == "-d" ]]; then
+			username="$2"
+		elif [[ "$2" == "-d" ]]; then
+			username="$1"
+		fi
+
 		if [[ -n "$3" ]]; then
-			wpcli user delete "$1" --reassign="$3" 
+			wpcli user delete "$username" --reassign="$3" 
 		else
-			wpcli user delete "$1"
+			wpcli user delete "$username"
 		fi
 	elif [[ "$1" == "-n" || "$1" == "new" ]]; then
 		echo
 
-		default="deleteme"
+		default="techsupport"
 		unset username
 		read -rp "Username [$default]: " username
 		if [[ -z "$username" ]]; then
 			username="$default"
 		fi
 
-		default="deleteme@example.com"
+		default="support@example.com"
 		unset email
 		read -rp "Email [$default]: " email
 		if [[ -z "$email" ]]; then
@@ -728,13 +757,13 @@ wpuser()
 			wpcli user create "$username" "$email" --role=administrator --user_pass="$password"
 		fi
 
-		unset password
 		echo
 	elif [[ -z "$2" ]]; then
 		wpcli user get "$1"
 	else
 		wpcli user "$@"
 	fi
+	unset password
 }
 
 wpplug()
@@ -762,31 +791,43 @@ wpplug()
 	-u, update [--all]       Update one or more plugins.
 		"
 	elif [[ "$1" == "help" && -n "$2" ]]; then
-		wpcli help user "$@"
+		wpcli help plugin ${@:2}
 	elif [[ "$1" == "-d" ]] || [[ "$1" == "deactivate" && (( "$2" == "-all" || "$2" == "--all" )) ]]; then
-		active_plugins=( $( wpcli plugin list --status=active --fields=name | sed -n "2,$ p" ) )
-		if [[ -z "${active_plugins[@]}" ]]; then
-			echo 'No plugins active!'
+		if [[ "$1" == "-d" ]] && [[ -n "$2" ]]; then
+			wpcli plugin deactivate ${@:2}
 		else
-			wpcli plugin deactivate ${active_plugins[@]}
+			active_plugins=( $( wpcli plugin list --status=active --fields=name | sed -n "2,$ p" ) )
+			if [[ -z "${active_plugins[@]}" ]]; then
+				echo 'No plugins active!'
+			else
+				wpcli plugin deactivate ${active_plugins[@]}
+			fi
 		fi
 	elif [[ "$1" == "-a" ]] || [[ "$1" == "activate" && (( "$2" == "-all" || "$2" == "--all" )) ]]; then
-		#The point of this is to check if someone ran a deactivate --all already, and if so, reactivate
-		#only the plugins that were deactivated the first time. Otherwise, activate all plugins. If you
-		#run this twice, it'll activate all plugins regardless.
-		inactive_plugins=( $( wpcli plugin list --status=inactive --fields=name | sed -n "2,$ p" ) )
-		if [[ -z "${active_plugins[@]}" ]]; then
-			if [[ -n "${inactive_plugins[@]}" ]]; then
-				wpcli plugin activate ${inactive_plugins[@]}
-			else
-				echo 'All plugins active!'
-			fi
+		if [[ "$1" == "-a" ]] && [[ -n "$2" ]]; then
+			wpcli plugin activate ${@:2}
 		else
-			wpcli plugin activate ${active_plugins[@]}
-			unset active_plugins
+			#The point of this is to check if someone ran a deactivate --all already, and if so, reactivate
+			#only the plugins that were deactivated the first time. Otherwise, activate all plugins. If you
+			#run this twice, it'll activate all plugins regardless.
+			inactive_plugins=( $( wpcli plugin list --status=inactive --fields=name | sed -n "2,$ p" ) )
+			if [[ -z "${active_plugins[@]}" ]]; then
+				if [[ -n "${inactive_plugins[@]}" ]]; then
+					wpcli plugin activate ${inactive_plugins[@]}
+				else
+					echo 'All plugins active!'
+				fi
+			else
+				wpcli plugin activate ${active_plugins[@]}
+				unset active_plugins
+			fi
 		fi
 	elif [[ "$1" == "-u" ]] || [[ "$1" == "update" && "$2" == "-all" ]]; then
-		wpcli plugin update --all
+		if [[ "$1" == "-u" ]] && [[ -n "$2" ]]; then
+			wpcli plugin update ${@:2}
+		else
+			wpcli plugin update --all
+		fi
 	else
 		wpcli plugin "$@"
 	fi
