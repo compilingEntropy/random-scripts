@@ -312,7 +312,21 @@ wptheme()
 	-t                    Set only template:     wptheme -t twentyfifteen
 		"
 	elif [[ "$1" == "help" && -n "$2" ]]; then
-		wpcli help theme ${@:2}
+		if [[ "$2" == "-u" ]]; then
+			wpcli help theme update ${@:3}
+		elif [[ "$2" == "use" ]]; then
+			echo "
+Equivalent to the following:
+  wptheme install <theme>
+  wptheme activate <theme>
+
+It is safe to use this when the theme is already installed, as wptheme install
+checks to see whether the theme is installed before attempting to install it.
+This means uou can *use* this to activate themes that are already installed.
+  			"
+		else
+			wpcli help theme ${@:2}
+		fi
 	elif [[ -z "$1" ]]; then
 		echo
 		wpcli theme status
@@ -375,12 +389,12 @@ wpfix()
 	ColorOff=$'\e[0m'		# Text Reset
 	BGreen=$'\e[1;32m'		# Bold Green
 
+	wpcore config --rebuild
 	wpcli cache flush
 	wpcli db repair | grep -v "OK" | sed "s/Success:/${BGreen}Success:${ColorOff}/g"
 	wpcli db optimize | grep -v "OK" | sed "s/Success:/${BGreen}Success:${ColorOff}/g"
 	wpcli core update-db
 	wpcli transient delete-expired
-	wpcore config --rebuild
 
 
 	###HARD FIXES###
@@ -496,9 +510,9 @@ wpstats()
 	echo
 	
 	#harmless fix so we can use cut in a sec even if their quotes are jacked up
-	sed "s/[‘’]/'/g" -i ./wp-config.php
+	sed "s/[‘’]/'/g" -i ./wp-config.php 2> /dev/null
 
-	dbprefix="$( grep "table_prefix" ./wp-config.php | cut -d \' -f 2 )"
+	dbprefix="$( grep "table_prefix" ./wp-config.php 2> /dev/null | cut -d \' -f 2 )"
 	wpcli core is-installed || echo
 	wpcli db query "SHOW STATUS WHERE variable_name = 'Threads_running';" | grep "Threads_running" | sed "s|Threads_running|Active Connections:|g"
 	if [[ -z "$dbprefix" ]] && (( $( wpcli db tables 2> /dev/null | egrep -c "^$dbprefix" ) < 1 )); then
@@ -603,7 +617,11 @@ wpdb()
 	elif [[ "$1" == "update-db" ]]; then
 		wpcli core update-db
 	elif [[ "$1" == "help" && -n "$2" ]]; then
-		wpcli help db ${@:2}
+		if [[ "$2" == "update-db" ]]; then
+			wpcli help core update-db ${@:3}
+		else
+			wpcli help db ${@:2}
+		fi
 	else
 		wpcli db "$@"
 	fi
@@ -794,7 +812,15 @@ wpplug()
 	-u, update [--all]       Update one or more plugins.
 		"
 	elif [[ "$1" == "help" && -n "$2" ]]; then
-		wpcli help plugin ${@:2}
+		if [[ "$2" == "-a" ]]; then
+			wpcli help plugin activate ${@:3}
+		elif [[ "$2" == "-d" ]]; then
+			wpcli help plugin deactivate ${@:3}
+		elif [[ "$2" == "-u" ]]; then
+			wpcli help plugin update ${@:3}
+		else
+			wpcli help plugin ${@:2}
+		fi
 	elif [[ "$1" == "-d" ]] || [[ "$1" == "deactivate" && (( "$2" == "-all" || "$2" == "--all" )) ]]; then
 		if [[ "$1" == "-d" && -n "$2" ]]; then
 			wpcli plugin deactivate ${@:2}
