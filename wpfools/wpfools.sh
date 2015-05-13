@@ -99,13 +99,15 @@ wpcore()
   Usage:
 	wpcore [VERSION]
 
-		<blank>
+	    <blank>
 		download the latest stable version of the Wordpress core
-		#.#.#
+	    #.#.#
 		download version VERSION of the Wordpress core
-		cur
+	    cur
 		download new set of files matching current file version
-		-h
+	    db
+		download new set of files matching current database version
+	    -h
 		display this help output
 
   Additional features:
@@ -132,11 +134,19 @@ wpcore()
 		version="$( wpver -q )"
 	}
 	#Download new set of files matching current database version
-#	databaseVersion()
-#	{
-#		version="$( wpver -q | awk '{print $3}' )"
-#		wpfile="wordpress-$version.tar.gz"
-#	}
+	databaseVersion()
+	{
+		dbVersion="$( wpver --extra | sed -n "/Database revision/ s/.* //p" )"
+		if [[ -n "$dbVersion" ]]; then
+			version="$( curl -Ss https://codex.wordpress.org/WordPress_Versions | grep "$dbVersion" -B 4 | egrep -o -m 1 "title=\"Version .*\"" | egrep -o "$version_regex" )"
+			if [[ "$version" =~ $version_regex ]]; then
+				return 0
+			fi
+		fi
+
+		echo "Unable to determine file version based on database version."
+		return 9
+	}
 	#Download new set of files matching user specified version
 	selectedVersion()
 	{
@@ -272,9 +282,9 @@ wpcore()
 		wpcli help core ${@:2}
 		return $?
 	elif [[ "$arg" == "cur" || "$arg" == "file" ]]; then
-		fileVersion
-	#elif [[ "$arg" == "db" || "$arg" == "database" ]]; then
-	#	databaseVersion
+		fileVersion || return $?
+	elif [[ "$arg" == "db" || "$arg" == "database" ]]; then
+		databaseVersion || return $?
 	elif [[ "$arg" =~ $version_regex ]]; then
 		selectedVersion
 	elif [[ "$arg" =~ [[:digit:]] ]]; then
@@ -645,7 +655,7 @@ wpver()
 
 
 	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ || "$1" == "help" ]]; then
-		wpcli help core version
+		/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp help core version --skip-plugins --skip-themes
 		return 0
 	fi
 
@@ -654,7 +664,7 @@ wpver()
 	fi
 	if [[ ! "$wp_version" =~ $version_regex ]]; then
 		#have to call directly because we don't call wpenv in this function; if we do, we get a mean recursive case
-		wp_version="$( /usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp core version )"
+		wp_version="$( /usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp core version --skip-plugins --skip-themes )"
 	fi
 
 	if [[ -z "$1" ]]; then
@@ -664,7 +674,7 @@ wpver()
 	elif [[ "$1" == "-q" ]]; then
 		echo "$wp_version"
 	else
-		/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp core version "$@"
+		/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp core version "$@" --skip-plugins --skip-themes
 	fi
 }
 
