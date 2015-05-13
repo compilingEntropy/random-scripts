@@ -163,10 +163,21 @@ wpcore()
 			operation="download"
 		fi
 
-		if [[ "$version" == "latest" ]]; then
-			wpcli core "$operation" --force
-		else
-			wpcli core "$operation" --version="$version" --force
+		go()
+		{
+			if [[ "$version" == "latest" ]]; then
+				wpcli core "$operation" --force
+			else
+				wpcli core "$operation" --version="$version" --force
+			fi
+		}
+
+		go
+
+		if (( $? != 0 )) && [[ "$operation" == update ]]; then
+			echo "Trying another method..."
+			operation="download"
+			go
 		fi
 	}
 
