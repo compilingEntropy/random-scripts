@@ -59,7 +59,7 @@ wpenv()
 			#less than 3.5.2
 			wpcli()
 			{
-				/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@"
+				/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@" --skip-plugins --skip-themes
 			}
 			return $?
 		fi
@@ -71,7 +71,7 @@ wpenv()
 	#greater than or equal to 3.5.2
 	wpcli()
 	{
-		/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@"
+		/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@" --skip-plugins --skip-themes
 	}
 }
 
@@ -645,9 +645,7 @@ wpver()
 
 
 	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ || "$1" == "help" ]]; then
-		echo "
-This tool returns the current install's version.
-		"
+		wpcli help core version
 		return 0
 	fi
 
@@ -659,12 +657,14 @@ This tool returns the current install's version.
 		wp_version="$( /usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp core version )"
 	fi
 
-	if [[ "$1" == "-q" ]]; then
-		echo "$wp_version"
-	else
+	if [[ -z "$1" ]]; then
 		echo "
 	WP version:	$wp_version
 		"
+	elif [[ "$1" == "-q" ]]; then
+		echo "$wp_version"
+	else
+		/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp core version "$@"
 	fi
 }
 
