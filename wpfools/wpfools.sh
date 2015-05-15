@@ -59,7 +59,7 @@ wpenv()
 			#less than 3.5.2
 			wpcli()
 			{
-				/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@" --skip-plugins --skip-themes
+				/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@"
 			}
 			return $?
 		fi
