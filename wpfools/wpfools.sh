@@ -232,14 +232,14 @@ wpcore()
 				dbname="$default"
 			fi
 
-			default="$(whoami)_wp"
+			default="$dbname"
 			unset dbuser
 			read -rp "Username [$default]: " dbuser
 			if [[ -z "$dbuser" ]]; then
 				dbuser="$default"
 			fi
 
-			default="strings /dev/urandom | egrep -o "[[:alnum:]]" | head -n 20 | tr -d "\n""
+			default="$( strings /dev/urandom | egrep -o "[[:alnum:]]" | head -n 20 | tr -d "\n" )"
 			unset dbpass
 			read -rp "Password [$default]: " dbpass
 			if [[ -z "$dbpass" ]]; then
