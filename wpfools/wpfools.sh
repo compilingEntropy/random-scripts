@@ -744,14 +744,23 @@ wpuser()
 		fi
 		wpcli user update "$username" --user_login="$login" 
 	elif [[ "$1" == "-p" || "$2" == "-p" ]]; then
-		if [[ "$1" == "-p" ]]; then
-			password"$2"
-			username="$3"
-		elif [[ "$2" == "-p" ]]; then
-			password"$3"
-			username="$1"
+		if [[ -n "$3" ]]; then
+			if [[ "$1" == "-p" ]]; then
+				password="$2"
+				username="$3"
+			elif [[ "$2" == "-p" ]]; then
+				password="$3"
+				username="$1"
+			fi
+		else
+			if [[ "$1" == "-p" ]]; then
+				username="$2"
+			elif [[ "$2" == "-p" ]]; then
+				username="$1"
+			fi
+			read -rp "Password: " password
 		fi
-		wpcli user update "$username" --user_pass="$password" 
+		wpcli user update "$username" --user_pass="$password"
 	elif [[ "$1" == "-a" || "$2" == "-a" ]]; then
 		if [[ "$1" == "-a" ]]; then
 			username="$2"
