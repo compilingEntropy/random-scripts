@@ -69,10 +69,22 @@ wpenv()
 	fi
 
 	#greater than or equal to 3.5.2
-	wpcli()
-	{
-		/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@" --skip-plugins --skip-themes
-	}
+	if [[ -f /usr/php/54/usr/bin/php-cli ]]; then
+		wpcli()
+		{
+			/usr/php/54/usr/bin/php-cli -c /etc/wp-cli/php.ini /usr/php/54/usr/bin/wp "$@" --skip-plugins --skip-themes
+		}
+	elif [[ -f /usr/bin/php-cli ]]; then
+		wpcli()
+		{
+			/usr/bin/php-cli /usr/php/54/usr/bin/wp "$@" --skip-plugins #--skip-themes
+		}
+	else
+		wpcli()
+		{
+			php-cli /usr/php/54/usr/bin/wp "$@" --skip-plugins --skip-themes
+		}
+	fi
 }
 
 now()
