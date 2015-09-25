@@ -179,7 +179,7 @@ wpcore()
 	updateWordpress()
 	{
 		#update if we're currently in a wordpress directory, download otherwise
-		if [[ -d ./wp-admin ]] && [[ -d ./wp-includes/ ]]; then
+		if [[ -d ./wp-admin/ ]] && [[ -d ./wp-includes/ ]]; then
 			operation="update"
 		else
 			operation="download"
@@ -189,6 +189,10 @@ wpcore()
 		{
 			if [[ "$version" == "latest" ]]; then
 				wpcli core "$operation" --force
+			elif [[ "$version" == "$( wpver -q )" ]]; then
+				ColorOff=$'\e[0m'		# Text Reset
+				BGreen=$'\e[1;32m'		# Bold Green
+				wpcli core "$operation" --version="$version" --force | sed -e 's|Updating to|Replacing files for|g' -e 's|Downloading update|Downloading package|g' -e 's|the update...|WordPress...|g' -e "s/Success:/${BGreen}Success:${ColorOff}/g"
 			else
 				wpcli core "$operation" --version="$version" --force
 			fi
@@ -213,8 +217,9 @@ wpcore()
 				return 9
 			fi
 			#harmless fix so we can use cut in a sec even if their quotes are jacked up
-			sed "s/[‘’]/'/g" -i ./wp-config.php
+			sed -e "s/[‘’]/'/g" -e "s/[“”]/\"/g" -i ./wp-config.php
 
+			#TODO: grep -m 1 "[^//]"
 			dbuser="$( grep "DB_USER" ./wp-config.php | cut -d \' -f 4 )"
 			dbpass="$( grep "DB_PASSWORD" ./wp-config.php | cut -d \' -f 4 )"
 			dbhost="$( grep "DB_HOST" ./wp-config.php | cut -d \' -f 4 )"
@@ -417,7 +422,7 @@ wpfix()
 		return 0
 	fi
 	#not built in, but solves more problems than you'd think
-	sed "s/[‘’]/'/g" -i ./wp-config.php
+	sed -e "s/[‘’]/'/g" -e "s/[“”]/\"/g" -i ./wp-config.php
 
 	ColorOff=$'\e[0m'		# Text Reset
 	BGreen=$'\e[1;32m'		# Bold Green
@@ -543,7 +548,7 @@ wpstats()
 	echo
 	
 	#harmless fix so we can use cut in a sec even if their quotes are jacked up
-	sed "s/[‘’]/'/g" -i ./wp-config.php 2> /dev/null
+	sed -e "s/[‘’]/'/g" -e "s/[“”]/\"/g" -i ./wp-config.php 2> /dev/null
 
 	dbprefix="$( grep "table_prefix" ./wp-config.php 2> /dev/null | cut -d \' -f 2 )"
 	wpcli core is-installed || echo
@@ -609,7 +614,7 @@ wpdb()
 		#get some database variables from wp-config.php
 		if [[ -f "./wp-config.php" ]]; then
 			#harmless fix so we can use cut in a sec even if their quotes are jacked up
-			sed "s/[‘’]/'/g" -i ./wp-config.php
+			sed -e "s/[‘’]/'/g" -e "s/[“”]/\"/g" -i ./wp-config.php
 
 			dbuser="$( grep "DB_USER" ./wp-config.php | cut -d \' -f 4 )"
 			dbpass="$( grep "DB_PASSWORD" ./wp-config.php | cut -d \' -f 4 )"
@@ -814,7 +819,7 @@ wpuser()
 		read -rp "Password [randomly generated]: " password
 
 		if [[ -z "$password" ]]; then
-			wpcli user create "$username" "$email" --role=administrator 
+			wpcli user create "$username" "$email" --role=administrator
 		else
 			wpcli user create "$username" "$email" --role=administrator --user_pass="$password"
 		fi
