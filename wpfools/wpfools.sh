@@ -61,8 +61,14 @@ wpenv()
 			{
 				/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@"
 			}
-			return $?
+		elif [[ "$( echo -e "4.4\n$wp_version" | sort -V | head -n 1 )" == "4.4" ]]; then
+			#greater than or equal to 4.4
+			wpcli()
+			{
+				/usr/php/54/usr/bin/php-cli /usr/local/bin/wp "$@" --skip-plugins --skip-themes
+			}
 		fi
+		return $?
 	else
 		#assume new
 		echo "Unable to detect Wordpress version, assuming > 3.5.2."
@@ -97,6 +103,10 @@ wpcore()
 	arg="$1"
 
 	wpenv
+	if (( $? == 1 )); then		
+		echo "Unable to set up, or locate, a proper wp-cli environment."		
+		return 1
+	fi
 
 	#clean up cache, this is required because there's a bug that causes update to fail when it tries using a cached file
 	rm -rf ~/.wp-cli/cache/core/*
@@ -327,6 +337,11 @@ wpcore()
 wptheme()
 {
 	wpenv
+	if (( $? == 1 )); then		
+		echo "Unable to set up, or locate, a proper wp-cli environment."		
+		return 1
+	fi
+
 
 	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ ]] || [[ "$1" == "help" && -z "$2" ]]; then
 		echo "
@@ -397,6 +412,10 @@ Details:
 wpfix()
 {
 	wpenv
+	if (( $? == 1 )); then		
+		echo "Unable to set up, or locate, a proper wp-cli environment."		
+		return 1
+	fi
 
 	if [[ "$1" == "--help" || "$1" =~ ^-[hH]$ || "$1" == "help" ]]; then
 		echo "
@@ -529,6 +548,10 @@ wpfix()
 wpstats()
 {
 	wpenv
+	if (( $? == 1 )); then		
+		echo "Unable to set up, or locate, a proper wp-cli environment."		
+		return 1
+	fi
 
 	available_version="$( wpcli core check-update --field=version | egrep -m 1 -o $version_regex )"
 	wp_version="$( wpver -q 2> /dev/null )"
@@ -562,6 +585,10 @@ wpstats()
 wpurl()
 {
 	wpenv
+	if (( $? == 1 )); then		
+		echo "Unable to set up, or locate, a proper wp-cli environment."		
+		return 1
+	fi
 
 	if [[ -z "$1" ]]; then
 		echo "
@@ -590,6 +617,10 @@ wpurl()
 wpht()
 {
 	wpenv
+	if (( $? == 1 )); then		
+		echo "Unable to set up, or locate, a proper wp-cli environment."		
+		return 1
+	fi
 
 #	if [[ -f ./.htaccess ]]; then
 #		cp ./.htaccess ./.htaccess_"$( now )"
@@ -609,6 +640,9 @@ wpht()
 wpdb()
 {
 	wpenv
+	if (( $? == 1 )); then		
+		echo "Unable to set up, or locate, a proper wp-cli environment."		
+	fi
 
 	if [[ -z "$1" ]]; then
 		#get some database variables from wp-config.php
@@ -698,6 +732,10 @@ wpver()
 wpuser()
 {
 	wpenv
+	if (( $? == 1 )); then		
+		echo "Unable to set up, or locate, a proper wp-cli environment."		
+		return 1
+	fi
 
 	functions=" add-cap add-role create delete generate get import-csv list list-caps meta remove-cap remove-role set-role update "
 
@@ -837,6 +875,10 @@ wpuser()
 wpplug()
 {
 	wpenv
+	if (( $? == 1 )); then		
+		echo "Unable to set up, or locate, a proper wp-cli environment."		
+		return 1
+	fi
 
 	if [[ -z "$1" ]]; then
 		echo
