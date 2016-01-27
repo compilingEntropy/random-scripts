@@ -61,20 +61,21 @@ wpenv()
 			{
 				/usr/php/54/usr/bin/php-cli /usr/php/54/usr/bin/wp-compat "$@"
 			}
+			return $?
 		elif [[ "$( echo -e "4.4\n$wp_version" | sort -V | head -n 1 )" == "4.4" ]]; then
 			#greater than or equal to 4.4
 			wpcli()
 			{
 				/usr/php/54/usr/bin/php-cli /usr/local/bin/wp "$@" --skip-plugins --skip-themes
 			}
+			return $?
 		fi
-		return $?
 	else
 		#assume new
 		echo "Unable to detect Wordpress version, assuming > 3.5.2."
 	fi
 
-	#greater than or equal to 3.5.2
+	#greater than or equal to 3.5.2, less than 4.4
 	if [[ -f /usr/php/54/usr/bin/php-cli ]]; then
 		wpcli()
 		{
